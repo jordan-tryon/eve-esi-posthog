@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — EVE Tracker{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+
+{% set c = current %}
+
+<!-- Character header -->
+<div class="flex items-center gap-5 mb-6">
+  <img src="https://images.evetech.net/characters/{{ character_id }}/portrait?size=128"
+       class="w-16 h-16 rounded-full border-2 border-eve-gold" alt="portrait" />
+  <div>
+    <h1 class="text-2xl font-bold text-eve-text">{{ c.character_name or 'Unknown Pilot' }}</h1>
+    <p class="text-eve-muted text-sm">
+      Last snapshot:
+      {% if c.captured_at %}
+        {{ c.captured_at[:19].replace('T',' ') }} UTC
+      {% else %}
+        No data yet — syncing…
+      {% endif %}
+    </p>
+  </div>
+  {% if sync_status.error %}
+  <div class="ml-auto text-red-400 text-sm">⚠ {{ sync_status.error }}</div>
+  {% endif %}
+</div>
+
+<!-- Metric cards -->
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+
+  <!-- Wallet -->
+  <div class="card p-4">
+    <p class="text-eve-muted text-xs uppercase tracking-wider mb-1">Wallet</p>
+    <p class="text-xl font-bold text-eve-text">
+      {% if c.wallet_balance is not none %}
+        {{ '{:,.0f}'.format(c.wallet_balance) }} ISK
+      {% else %}—{% endif %}
+    </p>
+  </div>
+
+  <!-- ISK/hr -->
+  <div class="card p-4">
+    <p class="text-eve-muted text-xs uppercase tracking-wider mb-1">ISK / Hour</p>
+    <p class="text-xl font-bold gold-text">
+      {% if c.isk_hour is not none %}
+        {{ '{:,.0f}'.format(c.isk_hour) }}
+      {% else %}—{% endif %}
+    </p>
+    {% if c.activity_type and c.activity_type != 'Unknown' %}
+    <p class="text-xs text-eve-muted mt-1">{{ c.activity_type }}</p>
+    {% endif %}
+  </div>
+
+  <!-- Risk -->
+  <div class="card p-4">
+    <p class="text-eve-muted text-xs uppercase tracking-wider mb-1">Risk Level</p>
+    <p class="text-xl font-bold risk-{{ c.risk_level or 'LOW' }}">
+      {{ c.risk_level or '—' }}
+    </p>
+    {% if c.recent_losses %}
+    <p class="text-xs text-red-400 mt-1">{{ c.recent_losses }} loss(es) / 24h</p>
+    {% endif %}
+  </div>
+
+  <!-- Location -->
+  <div class="card p-4">
+    <p class="text-eve-muted text-xs uppercase tracking-wider mb-1">Location</p>
+    <p class="text-base font-semibold text-eve-text truncate">{{ c.system_name or '—' }}</p>
+    {% if c.security_status is not none %}
+    <p class="text-xs mt-1
+      {% if c.security_status >= 0.45 %}sec-high
+      {% elif c.security_status >= 0.05 %}sec-low
+      {% else %}sec-null{% endif %}">
+      {{ '{:.1f}'.format(c.security_status) }}
+    </p>
+    {% endif %}
+  </div>
+
+  <!-- Ship -->
+  <div class="card p-4">
+    <p class="text-eve-muted text-xs uppercase tracking-wider mb-1">Ship</p>
+    <p class="text-base font-semibold text-eve-text truncate">{{ c.ship_name or '—' }}</p>
+    {% if c.total_sp %}
+    <p class="text-xs text-eve-muted mt-1">{{ '{:,.0f}'.format(c.total_sp) }} SP</p>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Charts row -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+
+  <!-- ISK Balance history -->
+  <div class="card p-4 lg:col-span-2">
+    <p class="text-eve-muted text-xs uppercase tracking-wider mb-3">Wallet Balance (7 days)</p>
+    <canvas id="walletChart" height="110"></canvas>
+  </div>
+
+  <!-- Activity donut -->
+  <div class="card p-4">
+    <p class="text-eve-muted text-xs uppercase tracking-wider mb-3">ISK Sources (7 days)</p>
+    <canvas id="activityChart" height="170"></canvas>
+  </div>
+
+</div>
+
+<!-- ISK/hr history -->
+<div class="card p-4 mb-6">
+  <p class="text-eve-muted text-xs uppercase tracking-wider mb-3">ISK / Hour History</p>
+  <canvas id="iskHourChart" height="80"></canvas>
+</div>
+
+<!-- Recent snapshots table -->
+<div class="card p-4">
+  <p class="text-eve-muted text-xs uppercase tracking-wider mb-3">Recent Snapshots</p>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-eve-muted text-left border-b border-eve-border">
+          <th class="pb-2 pr-4">Time (UTC)</th>
+          <th class="pb-2 pr-4">Wallet</th>
+          <th class="pb-2 pr-4">ISK/hr</th>
+          <th class="pb-2 pr-4">Activity</th>
+          <th class="pb-2 pr-4">Risk</th>
+          <th class="pb-2 pr-4">System</th>
+          <th class="pb-2">Ship</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in snapshots[:48] %}
+        <tr class="border-b border-eve-border border-opacity-40 hover:bg-eve-surface transition">
+          <td class="py-2 pr-4 text-eve-muted text-xs">{{ s.captured_at[:19].replace('T',' ') }}</td>
+          <td class="py-2 pr-4">
+            {% if s.wallet_balance is not none %}{{ '{:,.0f}'.format(s.wallet_balance) }}{% else %}—{% endif %}
+          </td>
+          <td class="py-2 pr-4 gold-text">
+            {% if s.isk_hour is not none %}{{ '{:,.0f}'.format(s.isk_hour) }}{% else %}—{% endif %}
+          </td>
+          <td class="py-2 pr-4 text-eve-muted">{{ s.activity_type or '—' }}</td>
+          <td class="py-2 pr-4 risk-{{ s.risk_level or '' }}">{{ s.risk_level or '—' }}</td>
+          <td class="py-2 pr-4">{{ s.system_name or '—' }}</td>
+          <td class="py-2">{{ s.ship_name or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="py-4 text-center text-eve-muted">No snapshots yet. Sync is running…</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const GOLD   = '#c8a84b';
+const BORDER = '#1a2d50';
+const MUTED  = '#6a84a8';
+const TEXT   = '#c8d8f0';
+const GREEN  = '#4ade80';
+const RED    = '#f87171';
+const BLUE   = '#60a5fa';
+const PURPLE = '#a78bfa';
+
+Chart.defaults.color = MUTED;
+Chart.defaults.borderColor = BORDER;
+
+async function loadCharts() {
+  const res = await fetch('/api/history?hours=168');
+  const snaps = await res.json();
+
+  const labels     = snaps.map(s => s.captured_at.slice(0, 16).replace('T', ' '));
+  const wallet     = snaps.map(s => s.wallet_balance);
+  const iskHour    = snaps.map(s => s.isk_hour ?? 0);
+  const bounty     = snaps.reduce((a, s) => a + (s.isk_hour_bounty ?? 0), 0);
+  const trade      = snaps.reduce((a, s) => a + (s.isk_hour_trade ?? 0), 0);
+  const industry   = snaps.reduce((a, s) => a + (s.isk_hour_industry ?? 0), 0);
+  const other      = snaps.reduce((a, s) => a + (s.isk_hour_other ?? 0), 0);
+
+  // Wallet balance line chart
+  new Chart(document.getElementById('walletChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'ISK',
+        data: wallet,
+        borderColor: GOLD,
+        backgroundColor: 'rgba(200,168,75,0.08)',
+        borderWidth: 2,
+        pointRadius: snaps.length < 30 ? 3 : 0,
+        fill: true,
+        tension: 0.3,
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8 } },
+        y: { ticks: { callback: v => (v / 1e6).toFixed(0) + 'M' } }
+      }
+    }
+  });
+
+  // ISK/hr bar chart
+  new Chart(document.getElementById('iskHourChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'ISK/hr',
+        data: iskHour,
+        backgroundColor: 'rgba(200,168,75,0.6)',
+        borderColor: GOLD,
+        borderWidth: 1,
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8 } },
+        y: { ticks: { callback: v => (v / 1e6).toFixed(0) + 'M' } }
+      }
+    }
+  });
+
+  // Activity donut
+  new Chart(document.getElementById('activityChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Combat PvE', 'Trading', 'Industry', 'Other'],
+      datasets: [{
+        data: [bounty, trade, industry, other],
+        backgroundColor: [RED, GREEN, BLUE, PURPLE],
+        borderColor: '#111d35',
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { boxWidth: 12, padding: 10, font: { size: 11 } }
+        }
+      },
+      cutout: '65%',
+    }
+  });
+}
+
+loadCharts();
+</script>
+{% endblock %}

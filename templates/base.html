@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}EVE Tracker{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            eve: {
+              bg:      '#080c18',
+              surface: '#0d1526',
+              card:    '#111d35',
+              border:  '#1a2d50',
+              gold:    '#c8a84b',
+              gold2:   '#e8c96a',
+              text:    '#c8d8f0',
+              muted:   '#6a84a8',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #080c18; color: #c8d8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    .card { background: #111d35; border: 1px solid #1a2d50; border-radius: 8px; }
+    .gold-text { color: #c8a84b; }
+    .sec-high  { color: #4ade80; }
+    .sec-low   { color: #facc15; }
+    .sec-null  { color: #f87171; }
+    .risk-LOW    { color: #4ade80; }
+    .risk-MEDIUM { color: #facc15; }
+    .risk-HIGH   { color: #f87171; }
+    .dot-filled  { color: #c8a84b; }
+    .dot-empty   { color: #1a2d50; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #080c18; }
+    ::-webkit-scrollbar-thumb { background: #1a2d50; border-radius: 3px; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body class="min-h-screen">
+
+  <!-- Nav -->
+  <nav class="border-b border-eve-border px-6 py-3 flex items-center justify-between" style="background:#0d1526">
+    <div class="flex items-center gap-4">
+      <span class="gold-text font-bold text-lg tracking-widest uppercase">EVE Tracker</span>
+      {% if current %}
+      <span class="text-eve-muted text-sm">
+        {{ current.character_name or 'Unknown' }}
+      </span>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-3">
+      <a href="/" class="text-sm text-eve-muted hover:text-eve-text px-3 py-1 rounded hover:bg-eve-card transition">Dashboard</a>
+      <a href="/skills" class="text-sm text-eve-muted hover:text-eve-text px-3 py-1 rounded hover:bg-eve-card transition">Skills</a>
+      <button id="syncBtn" onclick="triggerSync()"
+        class="text-sm px-4 py-1.5 rounded border border-eve-gold gold-text hover:bg-eve-gold hover:text-eve-bg transition font-medium">
+        Sync Now
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="max-w-7xl mx-auto px-6 py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    async function triggerSync() {
+      const btn = document.getElementById('syncBtn');
+      btn.textContent = 'Syncing…';
+      btn.disabled = true;
+      try {
+        await fetch('/api/sync', { method: 'POST' });
+        pollStatus();
+      } catch (e) {
+        btn.textContent = 'Error';
+        setTimeout(() => { btn.textContent = 'Sync Now'; btn.disabled = false; }, 2000);
+      }
+    }
+
+    function pollStatus() {
+      const btn = document.getElementById('syncBtn');
+      const interval = setInterval(async () => {
+        const r = await fetch('/api/status');
+        const s = await r.json();
+        if (!s.running) {
+          clearInterval(interval);
+          btn.textContent = 'Sync Now';
+          btn.disabled = false;
+          location.reload();
+        }
+      }, 1500);
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
