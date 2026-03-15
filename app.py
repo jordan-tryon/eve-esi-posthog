@@ -98,6 +98,7 @@ def auth_start():
 
 
 @app.get("/auth/callback")
+@app.get("/callback")
 def auth_callback(code: str):
     character_id = auth.exchange_code(code)
     if not scheduler.running:
@@ -262,4 +263,4 @@ def api_status(character_id: int):
 
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=False)

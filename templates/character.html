@@ -274,14 +274,23 @@ async function loadFitting() {
   } catch(e) { panel.textContent='Failed to load fitting.'; }
 }
 
+
 async function triggerSync(cid) {
-  const btn=document.getElementById('syncBtn');
-  btn.textContent='Syncing…'; btn.disabled=true;
-  await fetch(`/api/c/${cid}/sync`,{method:'POST'});
-  const iv=setInterval(async()=>{
-    const s=await(await fetch(`/api/c/${cid}/status`)).json();
-    if(!s.running){clearInterval(iv);location.reload();}
-  },1500);
+  const btn = document.getElementById('syncBtn');
+  btn.textContent = 'Syncing…';
+  btn.disabled = true;
+
+  await fetch(`/api/c/${cid}/sync`, {method:'POST'});
+
+  const iv = setInterval(async () => {
+    const s = await (await fetch(`/api/c/${cid}/status`)).json();
+    if (!s.running) {
+      clearInterval(iv);
+      btn.textContent = 'Sync Now';
+      btn.disabled = false;
+      if (!s.error) location.reload();
+    }
+  }, 1500);
 }
 
 loadCharts();
