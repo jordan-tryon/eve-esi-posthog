@@ -183,16 +183,17 @@ def run_hourly_snapshot(
         isk_rates     = compute_isk_rates(journal_24h, since_24h, now)
         activity_type = detect_activity_type(journal_24h, since_24h)
     else:
-        # No recent activity — find the most recent session and rate from that
+        # No 24h activity — fall back to most recent session if within 7 days
+        cutoff_7d = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
         sessions = store.get_sessions(character_id, limit=1)
         if sessions:
             sess = sessions[0]
-            sess_since = sess["started_at"]
-            sess_until = sess["ended_at"] or now
-            sess_journal = store.get_journal_entries_between(character_id, sess_since, sess_until)
-            if sess_journal:
-                isk_rates     = compute_isk_rates(sess_journal, sess_since, sess_until)
-                activity_type = detect_activity_type(sess_journal, sess_since)
+            sess_end = sess["ended_at"] or now
+            if sess_end >= cutoff_7d:
+                sess_journal = store.get_journal_entries_between(character_id, sess["started_at"], sess_end)
+                if sess_journal:
+                    isk_rates     = compute_isk_rates(sess_journal, sess["started_at"], sess_end)
+                    activity_type = detect_activity_type(sess_journal, sess["started_at"])
 
     risk_level = compute_risk_level(security_status, ship_group_id, recent_losses)
 

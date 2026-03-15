@@ -253,6 +253,9 @@ def api_sync(character_id: int, background_tasks: BackgroundTasks):
         return JSONResponse({"error": "character not registered"}, status_code=404)
     if _sync_jobs.get(character_id, {}).get("running"):
         return JSONResponse({"status": "already_running"})
+    # Mark running BEFORE handing off to background so status polls don't race
+    _sync_jobs.setdefault(character_id, {})["running"] = True
+    _sync_jobs[character_id]["error"] = None
     background_tasks.add_task(_make_sync_fn(character_id))
     return JSONResponse({"status": "started"})
 
