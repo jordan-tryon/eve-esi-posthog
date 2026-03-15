@@ -172,13 +172,27 @@ def run_hourly_snapshot(
         store.save_journal_entries(character_id, journal_raw)
 
     # --- Compute metrics ---
+    # Use a 24h rolling window so ISK/hr stays meaningful between syncs.
+    # Fall back to the most recent session window if no 24h journal data.
     isk_rates     = None
     activity_type = "Unknown"
 
-    if prev:
-        journal_window = store.get_journal_entries_between(character_id, prev["captured_at"], now)
-        isk_rates      = compute_isk_rates(journal_window, prev["captured_at"], now)
-        activity_type  = detect_activity_type(journal_window, prev["captured_at"])
+    journal_24h = store.get_journal_entries_between(character_id, since_24h, now)
+
+    if journal_24h:
+        isk_rates     = compute_isk_rates(journal_24h, since_24h, now)
+        activity_type = detect_activity_type(journal_24h, since_24h)
+    else:
+        # No recent activity — find the most recent session and rate from that
+        sessions = store.get_sessions(character_id, limit=1)
+        if sessions:
+            sess = sessions[0]
+            sess_since = sess["started_at"]
+            sess_until = sess["ended_at"] or now
+            sess_journal = store.get_journal_entries_between(character_id, sess_since, sess_until)
+            if sess_journal:
+                isk_rates     = compute_isk_rates(sess_journal, sess_since, sess_until)
+                activity_type = detect_activity_type(sess_journal, sess_since)
 
     risk_level = compute_risk_level(security_status, ship_group_id, recent_losses)
 

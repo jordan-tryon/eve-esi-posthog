@@ -344,3 +344,10 @@ class SnapshotStore:
             (character_id,),
         ).fetchone()
         return dict(row) if row else None
+
+    def get_sessions(self, character_id: int, limit: int = 10) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM sessions WHERE character_id=? ORDER BY started_at DESC LIMIT ?",
+            (character_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]

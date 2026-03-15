@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-BOUNTY_TYPES = {"bounty_prizes", "ess_escrow_transfer", "bounty_prize", "agent_mission_reward_bonus"}
+BOUNTY_TYPES = {"bounty_prizes", "ess_escrow_transfer", "bounty_prize", "agent_mission_reward_bonus", "daily_goal_payouts"}
 MISSION_TYPES = {"agent_mission_reward", "agent_mission_time_bonus_reward"}
 TRADE_TYPES = {"market_transaction", "transaction_tax", "brokers_fee", "market_escrow"}
 INDUSTRY_TYPES = {"industry_job_tax", "reprocessing_tax", "industry_job_completed"}
@@ -102,4 +102,4 @@ def detect_activity_type(journal_entries: list[dict], since: str) -> str:
             totals["Other"] += amount
 
     best = max(totals, key=lambda k: totals[k])
-    return best if totals[best] >= 1_000_000 else "Unknown"
+    return best if totals[best] >= 100_000 else "Unknown"
