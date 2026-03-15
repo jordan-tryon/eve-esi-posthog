@@ -251,6 +251,23 @@ class SnapshotStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_skills_map(self, character_id: int) -> dict:
+        """Returns {skill_id: trained_level} for fast lookup."""
+        rows = self.conn.execute(
+            "SELECT skill_id, trained_level FROM skills WHERE character_id=?",
+            (character_id,)
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
+    def update_skill_names(self, character_id: int, names: dict):
+        """Update skill_name for known skill_ids. names = {skill_id: name}"""
+        for skill_id, name in names.items():
+            self.conn.execute(
+                "UPDATE skills SET skill_name=? WHERE character_id=? AND skill_id=?",
+                (name, character_id, skill_id)
+            )
+        self.conn.commit()
+
     # --- Tokens ---
 
     def save_token(self, character_id: int, character_name: str, token: dict):

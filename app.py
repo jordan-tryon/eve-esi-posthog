@@ -267,6 +267,98 @@ def api_fitting(character_id: int):
     }
 
 
+def _extract_skill_reqs(type_info: dict) -> list[dict]:
+    """Extract required skills from dogma attributes."""
+    SKILL_MAP = {182:277, 183:278, 184:279, 1285:1286, 1289:1287, 1290:1288}
+    attrs = {a['attribute_id']: a['value'] for a in type_info.get('dogma_attributes', [])}
+    reqs = []
+    for skill_attr, level_attr in SKILL_MAP.items():
+        if skill_attr in attrs and level_attr in attrs:
+            sid = int(attrs[skill_attr])
+            lvl = int(attrs[level_attr])
+            if sid > 0 and lvl > 0:
+                reqs.append({"skill_id": sid, "level": lvl})
+    return reqs
+
+
+@app.get("/api/c/{character_id}/optimal")
+def api_optimal(character_id: int):
+    token = auth.get_valid_token(character_id)
+    esi   = ESIClient(access_token=token)
+
+    # Get current ship + fitted modules
+    ship       = esi.get_ship(character_id)
+    ship_item  = ship["ship_item_id"]
+    all_assets = esi.get_assets_all(character_id)
+    fitted     = [a for a in all_assets if a.get("location_id") == ship_item]
+
+    # Collect all type_ids: ship hull + fitted modules (exclude cargo)
+    CARGO_FLAGS = {"Cargo", "DroneBay"}
+    module_type_ids = {ship["ship_type_id"]}
+    for a in fitted:
+        if a.get("location_flag") not in CARGO_FLAGS:
+            module_type_ids.add(a["type_id"])
+
+    # Fetch type info for each and extract skill requirements
+    # Aggregate: for each skill, take the MAX required level across all items
+    all_reqs: dict[int, dict] = {}  # skill_id -> {level, items: [name]}
+    item_names = {}
+    for tid in module_type_ids:
+        try:
+            info = esi.get_type_info(tid)
+            item_names[tid] = info.get("name", str(tid))
+            for req in _extract_skill_reqs(info):
+                sid = req["skill_id"]
+                if sid not in all_reqs or req["level"] > all_reqs[sid]["level"]:
+                    all_reqs[sid] = {"level": req["level"], "required_by": item_names[tid]}
+        except Exception:
+            pass
+
+    # Resolve skill requirement names
+    req_skill_ids = list(all_reqs.keys())
+    skill_names: dict[int, str] = {}
+    if req_skill_ids:
+        try:
+            resolved = esi.get_universe_names(req_skill_ids)
+            skill_names = {e["id"]: e["name"] for e in resolved if e.get("category") == "inventory_type"}
+        except Exception:
+            pass
+
+    # Get character's trained skills
+    char_skills = store.get_skills_map(character_id)
+
+    # Build results
+    results = []
+    total_score = 0.0
+    max_score   = 0.0
+
+    for sid, req in all_reqs.items():
+        required = req["level"]
+        trained  = char_skills.get(sid, 0)
+        score    = min(trained, required) / required
+        total_score += score
+        max_score   += 1.0
+        results.append({
+            "skill_id":    sid,
+            "skill_name":  skill_names.get(sid, f"Skill {sid}"),
+            "required":    required,
+            "trained":     trained,
+            "met":         trained >= required,
+            "required_by": req["required_by"],
+        })
+
+    results.sort(key=lambda r: (r["met"], r["trained"] - r["required"]))
+    optimal_pct = round((total_score / max_score * 100) if max_score else 100, 1)
+
+    return {
+        "ship_name":   ship["ship_name"],
+        "ship_type":   item_names.get(ship["ship_type_id"], "Unknown"),
+        "optimal_pct": optimal_pct,
+        "fully_optimal": optimal_pct >= 100.0,
+        "requirements": results,
+    }
+
+
 @app.post("/api/c/{character_id}/sync")
 def api_sync(character_id: int, background_tasks: BackgroundTasks):
     if not store.get_token(character_id):

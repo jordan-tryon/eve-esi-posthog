@@ -314,6 +314,7 @@
 <!-- ══ FITTING TAB ══ -->
 <div id="panel-fitting" style="display:none">
   <div id="fittingTabContent" class="text-dune-muted text-sm">Loading fitting data…</div>
+  <div id="optimalPanel" class="mt-4"></div>
 </div>
 
 <!-- ══ SKILLS TAB ══ -->
@@ -496,7 +497,73 @@ function toggleSlot(id) {
   const chv = document.getElementById(id + '_chv');
   const open = el.style.display === 'none';
   el.style.display = open ? 'block' : 'none';
-  chv.textContent  = open ? '▼' : '▶';
+  if (chv) chv.textContent  = open ? '▼' : '▶';
+}
+
+let _optimalLoaded = false;
+async function loadOptimal() {
+  if (_optimalLoaded) return;
+  const panel = document.getElementById('optimalPanel');
+  panel.innerHTML = '<p class="text-dune-muted text-xs font-mono mt-2">Calculating optimal rating…</p>';
+  try {
+    const data = await (await fetch(`/api/c/${CID}/optimal`)).json();
+    if (data.error) { panel.innerHTML = ''; return; }
+    _optimalLoaded = true;
+
+    const pct = data.optimal_pct;
+    const barColor = pct >= 100 ? '#5a9e6f' : pct >= 75 ? '#c8a96e' : '#d4742a';
+    const unmet = data.requirements.filter(r => !r.met);
+    const met   = data.requirements.filter(r =>  r.met);
+
+    let html = `<div class="card p-4 mt-4">
+      <div class="flex items-center justify-between mb-3">
+        <p class="label">Flying Optimal</p>
+        <span class="font-mono text-lg" style="color:${barColor}">${pct}%</span>
+      </div>
+      <div class="w-full rounded-sm overflow-hidden mb-4" style="height:6px;background:#2a2d35">
+        <div style="width:${pct}%;height:100%;background:${barColor};transition:width 0.6s ease"></div>
+      </div>`;
+
+    if (unmet.length === 0) {
+      html += `<p class="text-xs font-mono sec-high">All skill requirements met for ${data.ship_name}.</p>`;
+    } else {
+      html += `<p class="label mb-2 spice">Missing / Undertrained (${unmet.length})</p>
+        <table class="w-full text-sm font-display mb-4">`;
+      for (const r of unmet) {
+        const pips = Array.from({length:5}, (_,i) =>
+          `<span class="inline-block w-2 h-2 rounded-sm mr-0.5" style="background:${i < r.trained ? '#d4742a' : i < r.required ? '#6b7280' : '#2a2d35'}"></span>`
+        ).join('');
+        html += `<tr class="border-b border-dune-border border-opacity-30">
+          <td class="py-1.5 pr-3 text-dune-text">${r.skill_name}</td>
+          <td class="py-1.5 pr-3">${pips}</td>
+          <td class="py-1.5 text-xs text-dune-muted font-mono">${r.trained}/${r.required} · ${r.required_by}</td>
+        </tr>`;
+      }
+      html += `</table>`;
+    }
+
+    if (met.length > 0) {
+      html += `<button class="text-xs text-dune-muted font-mono hover:sand transition-colors" onclick="toggleSlot('optMet')">
+        ▶ ${met.length} requirement${met.length!==1?'s':''} met
+      </button>
+      <div id="optMet" style="display:none" class="mt-2">
+        <table class="w-full text-sm font-display">`;
+      for (const r of met) {
+        const pips = Array.from({length:5}, (_,i) =>
+          `<span class="inline-block w-2 h-2 rounded-sm mr-0.5" style="background:${i < r.trained ? '#5a9e6f' : '#2a2d35'}"></span>`
+        ).join('');
+        html += `<tr class="border-b border-dune-border border-opacity-20">
+          <td class="py-1 pr-3 text-dune-muted text-xs">${r.skill_name}</td>
+          <td class="py-1 pr-3">${pips}</td>
+          <td class="py-1 text-xs text-dune-muted font-mono">${r.trained}/${r.required}</td>
+        </tr>`;
+      }
+      html += `</table></div>`;
+    }
+
+    html += `</div>`;
+    panel.innerHTML = html;
+  } catch(e) { panel.innerHTML = `<p class="text-dune-muted text-xs">Failed to load optimal rating.</p>`; }
 }
 
 function switchTab(name) {
@@ -508,7 +575,7 @@ function switchTab(name) {
     b.style.borderBottomColor = active ? '#c8a96e' : 'transparent';
     b.style.color = active ? '#c8a96e' : '#6b7280';
   });
-  if (name === 'fitting') loadFitting();
+  if (name === 'fitting') { loadFitting(); loadOptimal(); }
 }
 
 function filterSkills(q) {

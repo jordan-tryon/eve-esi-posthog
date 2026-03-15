@@ -175,6 +175,20 @@ def run_hourly_snapshot(
     if skills_data.get("skills"):
         store.save_skills(character_id, skills_data["skills"])
 
+    # Resolve and cache skill names (only for skills with NULL name)
+    unnamed = [r[0] for r in store.conn.execute(
+        "SELECT skill_id FROM skills WHERE character_id=? AND skill_name IS NULL",
+        (character_id,)
+    ).fetchall()]
+    if unnamed:
+        try:
+            resolved = esi.get_universe_names(unnamed[:1000])
+            name_map = {e["id"]: e["name"] for e in resolved if e.get("category") == "inventory_type"}
+            store.update_skill_names(character_id, name_map)
+            print(f"  [skills] Resolved {len(name_map)} skill names")
+        except Exception as e:
+            print(f"  [warn] Skill name resolution failed: {e}")
+
     # --- Compute metrics ---
     # ISK/hr = wallet delta between current and previous snapshot / elapsed hours.
     # This captures real net ISK flow (earnings minus expenditures) without
