@@ -210,6 +210,33 @@ def run_hourly_snapshot(
     estimated_value = round((wallet_balance or 0.0) + asset_value, 2)
     print(f"  [value] wallet={wallet_balance:,.0f}  assets={asset_value:,.0f}  total={estimated_value:,.0f}")
 
+    # --- Wealth ISK/hr (unrealized gains rate) ---
+    # Delta of total estimated account value between snapshots / elapsed hours
+    wealth_isk_hour = 0.0
+    if prev and prev.get("estimated_value") is not None:
+        prev_est = prev["estimated_value"]
+        prev_dt  = datetime.fromisoformat(prev["captured_at"])
+        now_dt   = datetime.fromisoformat(now)
+        elapsed_h = max((now_dt - prev_dt).total_seconds() / 3600, 0.01)
+        wealth_isk_hour = round((estimated_value - prev_est) / elapsed_h, 2)
+
+    # --- At-risk value: ship hull + fitted/cargo assets when in space ---
+    # Character is in space if no station and no structure
+    in_space = not location.get("station_id") and not location.get("structure_id")
+    at_risk_value = 0.0
+    if in_space and all_assets and market_prices:
+        ship_item_id = ship.get("ship_item_id")
+        # Ship hull value
+        if ship_type_id:
+            at_risk_value += price_map.get(ship_type_id, 0.0)
+        # All assets located ON the ship (location_id = ship_item_id)
+        if ship_item_id:
+            for a in all_assets:
+                if a.get("location_id") == ship_item_id:
+                    at_risk_value += a.get("quantity", 1) * price_map.get(a["type_id"], 0.0)
+        at_risk_value = round(at_risk_value, 2)
+        print(f"  [risk] In space — at_risk_value={at_risk_value:,.0f}")
+
     # --- Build and save snapshot ---
     snap = {
         "character_id":    character_id,
@@ -239,6 +266,8 @@ def run_hourly_snapshot(
         "last_login":       last_login,
         "last_logout":      last_logout,
         "estimated_value":  estimated_value,
+        "wealth_isk_hour":  wealth_isk_hour,
+        "at_risk_value":    at_risk_value,
     }
 
     store.save_snapshot(snap)

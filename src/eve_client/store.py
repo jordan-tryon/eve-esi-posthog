@@ -124,6 +124,8 @@ class SnapshotStore:
             ("last_login",       "TEXT"),
             ("last_logout",      "TEXT"),
             ("estimated_value",  "REAL"),
+            ("wealth_isk_hour",  "REAL"),
+            ("at_risk_value",    "REAL"),
         ]:
             if col not in existing:
                 self.conn.execute(f"ALTER TABLE snapshots ADD COLUMN {col} {typedef}")

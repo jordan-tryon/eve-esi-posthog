@@ -12,8 +12,10 @@
 
 <!-- Header -->
 <div class="flex items-center gap-5 mb-6">
-  <img src="https://images.evetech.net/characters/{{ cid }}/portrait?size=128"
-       class="w-16 h-16 rounded-sm border border-dune-border grayscale flex-shrink-0" style="filter:grayscale(30%)" />
+  <a href="/c/{{ cid }}">
+    <img src="https://images.evetech.net/characters/{{ cid }}/portrait?size=128"
+         class="w-16 h-16 rounded-sm border border-dune-border flex-shrink-0 hover:border-dune-sand transition-colors" style="filter:grayscale(30%)" />
+  </a>
   <div class="flex-1">
     <div class="flex items-center gap-3 flex-wrap mb-0.5">
       <h1 class="font-display font-700 text-2xl text-dune-bright tracking-wider">{{ character.character_name }}</h1>
@@ -40,7 +42,7 @@
 {% endif %}
 
 <!-- Metric cards -->
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
 
   <div class="card p-4">
     <p class="label mb-2">Wallet</p>
@@ -94,6 +96,26 @@
 
 </div>
 
+<!-- Wealth metrics row -->
+<div class="grid grid-cols-2 gap-3 mb-6">
+  <div class="card p-4">
+    <p class="label mb-2">Unrealized Gains / Hour</p>
+    <p class="metric-val {% if c.wealth_isk_hour and c.wealth_isk_hour > 0 %}sec-high{% elif c.wealth_isk_hour and c.wealth_isk_hour < 0 %}spice{% endif %}">
+      {% if c.wealth_isk_hour is not none %}{{ '{:+,.0f}'.format(c.wealth_isk_hour) }}{% else %}—{% endif %}
+    </p>
+    <p class="text-dune-muted text-xs font-mono mt-0.5">ISK/hr total wealth</p>
+  </div>
+  <div class="card p-4 {% if c.at_risk_value and c.at_risk_value > 0 %}border-dune-spice{% endif %}">
+    <p class="label mb-2" {% if c.at_risk_value and c.at_risk_value > 0 %}style="color:#d4742a"{% endif %}>
+      {% if c.at_risk_value and c.at_risk_value > 0 %}⚠ Assets At Risk{% else %}Assets At Risk{% endif %}
+    </p>
+    <p class="metric-val {% if c.at_risk_value and c.at_risk_value > 0 %}spice{% else %}text-dune-muted{% endif %}">
+      {% if c.at_risk_value and c.at_risk_value > 0 %}{{ '{:,.0f}'.format(c.at_risk_value / 1e6) }}{% else %}0{% endif %}
+    </p>
+    <p class="text-dune-muted text-xs font-mono mt-0.5">million ISK in space</p>
+  </div>
+</div>
+
 <!-- Charts -->
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-6">
   <div class="card p-4 lg:col-span-2">
@@ -112,9 +134,14 @@
 </div>
 
 <!-- Fitting -->
-<div class="card p-4 mb-6">
+<div class="card p-4 mb-6 {% if c.at_risk_value and c.at_risk_value > 0 %}border-dune-spice{% endif %}">
   <div class="flex items-center justify-between mb-3">
-    <p class="label">Current Fitting</p>
+    <div class="flex items-center gap-3">
+      <p class="label">Current Fitting</p>
+      {% if c.at_risk_value and c.at_risk_value > 0 %}
+      <span class="text-xs font-mono px-2 py-0.5 rounded-sm border border-dune-spice spice tracking-widest">AT RISK</span>
+      {% endif %}
+    </div>
     <span id="fittingShipName" class="text-dune-muted text-xs font-mono"></span>
   </div>
   <div id="fittingPanel" class="text-dune-muted text-sm">Loading…</div>
@@ -174,10 +201,77 @@
 
 </div>
 
+<!-- ISK Gains (expandable) -->
+<div class="card p-4 mb-3">
+  <button class="w-full flex items-center justify-between" onclick="toggleSection('iskGains')">
+    <p class="label">ISK Gains</p>
+    <span id="iskGainsChevron" class="text-dune-muted text-xs font-mono">▶ show</span>
+  </button>
+  <div id="iskGains" style="display:none" class="mt-3 overflow-x-auto">
+    <table class="w-full text-sm font-display">
+      <thead><tr class="border-b border-dune-border text-left">
+        <th class="pb-2 pr-4 label">Time (UTC)</th>
+        <th class="pb-2 pr-4 label text-right">Wallet</th>
+        <th class="pb-2 pr-4 label text-right">Delta</th>
+        <th class="pb-2 label text-right">ISK/hr</th>
+      </tr></thead>
+      <tbody>
+        {% for s in snapshots[:48] %}
+        <tr class="row border-b border-dune-border border-opacity-30">
+          <td class="py-1.5 pr-4 text-dune-muted font-mono text-xs">{{ s.captured_at[:19].replace('T',' ') }}</td>
+          <td class="py-1.5 pr-4 font-mono text-xs text-right">{% if s.wallet_balance is not none %}{{ '{:,.0f}'.format(s.wallet_balance) }}{% else %}—{% endif %}</td>
+          <td class="py-1.5 pr-4 font-mono text-xs text-right {% if s.isk_hour and s.isk_hour > 0 %}sec-high{% elif s.isk_hour and s.isk_hour < 0 %}spice{% endif %}">
+            {% if s.isk_hour is not none and s.isk_hour != 0 %}{{ '{:+,.0f}'.format(s.isk_hour) }}{% else %}—{% endif %}
+          </td>
+          <td class="py-1.5 font-mono text-xs text-right sand">{% if s.isk_hour %}{{ '{:,.0f}'.format(s.isk_hour) }}{% else %}—{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="py-6 text-center text-dune-muted">No snapshots yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Asset Gains (expandable) -->
+<div class="card p-4 mb-3">
+  <button class="w-full flex items-center justify-between" onclick="toggleSection('assetGains')">
+    <p class="label">Asset Gains (Est. Value)</p>
+    <span id="assetGainsChevron" class="text-dune-muted text-xs font-mono">▶ show</span>
+  </button>
+  <div id="assetGains" style="display:none" class="mt-3 overflow-x-auto">
+    <table class="w-full text-sm font-display">
+      <thead><tr class="border-b border-dune-border text-left">
+        <th class="pb-2 pr-4 label">Time (UTC)</th>
+        <th class="pb-2 pr-4 label text-right">Est. Value</th>
+        <th class="pb-2 pr-4 label text-right">Delta</th>
+        <th class="pb-2 label text-right">Wealth ISK/hr</th>
+      </tr></thead>
+      <tbody>
+        {% for s in snapshots[:48] %}
+        <tr class="row border-b border-dune-border border-opacity-30">
+          <td class="py-1.5 pr-4 text-dune-muted font-mono text-xs">{{ s.captured_at[:19].replace('T',' ') }}</td>
+          <td class="py-1.5 pr-4 font-mono text-xs text-right">{% if s.estimated_value %}{{ '{:,.0f}'.format(s.estimated_value / 1e6) }}M{% else %}—{% endif %}</td>
+          <td class="py-1.5 pr-4 font-mono text-xs text-right {% if s.wealth_isk_hour and s.wealth_isk_hour > 0 %}sec-high{% elif s.wealth_isk_hour and s.wealth_isk_hour < 0 %}spice{% endif %}">
+            {% if s.wealth_isk_hour is not none and s.wealth_isk_hour != 0 %}{{ '{:+,.0f}'.format(s.wealth_isk_hour) }}{% else %}—{% endif %}
+          </td>
+          <td class="py-1.5 font-mono text-xs text-right sand">{% if s.wealth_isk_hour %}{{ '{:,.0f}'.format(s.wealth_isk_hour) }}{% else %}—{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="py-6 text-center text-dune-muted">No snapshots yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <!-- Snapshot history -->
 <div class="card p-4">
-  <p class="label mb-3">Snapshot History</p>
-  <div class="overflow-x-auto">
+  <button class="w-full flex items-center justify-between" onclick="toggleSection('snapshotHistory')">
+    <p class="label">Snapshot History</p>
+    <span id="snapshotHistoryChevron" class="text-dune-muted text-xs font-mono">▶ show</span>
+  </button>
+  <div id="snapshotHistory" style="display:none" class="mt-3 overflow-x-auto">
     <table class="w-full text-sm font-display">
       <thead><tr class="border-b border-dune-border text-left">
         <th class="pb-2 pr-4 label">Time (UTC)</th>
@@ -220,6 +314,14 @@ Chart.defaults.color         = MUTED;
 Chart.defaults.borderColor   = BORDER;
 Chart.defaults.font.family   = 'Share Tech Mono';
 Chart.defaults.font.size     = 11;
+
+function toggleSection(id) {
+  const el  = document.getElementById(id);
+  const chv = document.getElementById(id + 'Chevron');
+  const open = el.style.display === 'none';
+  el.style.display  = open ? 'block' : 'none';
+  chv.textContent   = open ? '▼ hide' : '▶ show';
+}
 
 async function loadCharts() {
   const snaps = await (await fetch(`/api/c/${CID}/history`)).json();
