@@ -172,28 +172,30 @@ def run_hourly_snapshot(
         store.save_journal_entries(character_id, journal_raw)
 
     # --- Compute metrics ---
-    # Use a 24h rolling window so ISK/hr stays meaningful between syncs.
-    # Fall back to the most recent session window if no 24h journal data.
+    # ISK/hr = wallet delta between current and previous snapshot / elapsed hours.
+    # This captures real net ISK flow (earnings minus expenditures) without
+    # relying on journal parsing. Activity type still comes from journal.
     isk_rates     = None
     activity_type = "Unknown"
 
-    journal_24h = store.get_journal_entries_between(character_id, since_24h, now)
+    if prev and prev.get("wallet_balance") is not None and wallet_balance is not None:
+        prev_dt    = datetime.fromisoformat(prev["captured_at"])
+        now_dt     = datetime.fromisoformat(now)
+        elapsed_h  = max((now_dt - prev_dt).total_seconds() / 3600, 0.01)
+        delta      = wallet_balance - prev["wallet_balance"]
+        isk_hr     = round(delta / elapsed_h, 2)
+        isk_rates  = {
+            "isk_hour":          isk_hr,
+            "isk_hour_bounty":   0.0,
+            "isk_hour_trade":    0.0,
+            "isk_hour_industry": 0.0,
+            "isk_hour_other":    isk_hr if isk_hr > 0 else 0.0,
+        }
 
+    # Activity type from journal (last 24h)
+    journal_24h = store.get_journal_entries_between(character_id, since_24h, now)
     if journal_24h:
-        isk_rates     = compute_isk_rates(journal_24h, since_24h, now)
         activity_type = detect_activity_type(journal_24h, since_24h)
-    else:
-        # No 24h activity — fall back to most recent session if within 7 days
-        cutoff_7d = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-        sessions = store.get_sessions(character_id, limit=1)
-        if sessions:
-            sess = sessions[0]
-            sess_end = sess["ended_at"] or now
-            if sess_end >= cutoff_7d:
-                sess_journal = store.get_journal_entries_between(character_id, sess["started_at"], sess_end)
-                if sess_journal:
-                    isk_rates     = compute_isk_rates(sess_journal, sess["started_at"], sess_end)
-                    activity_type = detect_activity_type(sess_journal, sess["started_at"])
 
     risk_level = compute_risk_level(security_status, ship_group_id, recent_losses)
 
