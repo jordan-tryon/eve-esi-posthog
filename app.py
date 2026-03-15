@@ -154,6 +154,7 @@ def character_page(request: Request, character_id: int):
         (character_id,)
     ).fetchall()
     status = _sync_jobs.get(character_id, {})
+    skills = store.get_skills(character_id)
     return templates.TemplateResponse("character.html", {
         "request":     request,
         "character":   character,
@@ -162,6 +163,7 @@ def character_page(request: Request, character_id: int):
         "sessions":    [dict(s) for s in sessions],
         "losses":      [dict(l) for l in losses],
         "sync_status": status,
+        "skills":      skills,
     })
 
 

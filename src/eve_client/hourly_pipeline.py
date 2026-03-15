@@ -169,9 +169,11 @@ def run_hourly_snapshot(
     since_24h     = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     recent_losses = store.get_recent_losses(character_id, since_24h)
 
-    # --- Save journal entries ---
+    # --- Save journal and skills ---
     if journal_raw:
         store.save_journal_entries(character_id, journal_raw)
+    if skills_data.get("skills"):
+        store.save_skills(character_id, skills_data["skills"])
 
     # --- Compute metrics ---
     # ISK/hr = wallet delta between current and previous snapshot / elapsed hours.

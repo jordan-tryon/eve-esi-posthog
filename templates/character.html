@@ -51,6 +51,10 @@
     class="tab-btn px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
     Fitting
   </button>
+  <button id="tab-skills" onclick="switchTab('skills')"
+    class="tab-btn px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
+    Skills <span class="text-xs font-mono font-300 ml-1">{{ skills|length }}</span>
+  </button>
 </div>
 
 <!-- ══ OVERVIEW TAB ══ -->
@@ -312,6 +316,49 @@
   <div id="fittingTabContent" class="text-dune-muted text-sm">Loading fitting data…</div>
 </div>
 
+<!-- ══ SKILLS TAB ══ -->
+<div id="panel-skills" style="display:none">
+  {% if skills %}
+  <div class="mb-4">
+    <input id="skillSearch" type="text" placeholder="Filter skills…"
+      class="w-full md:w-80 rounded-sm px-3 py-2 text-dune-text text-sm font-display placeholder-dune-muted transition border"
+      style="background:#1c1f24; border-color:#2a2d35;"
+      oninput="filterSkills(this.value)" />
+  </div>
+  <div class="card overflow-hidden">
+    <table class="w-full text-sm" id="skillTable">
+      <thead>
+        <tr class="text-left border-b border-dune-border" style="background:#16181c">
+          <th class="px-4 py-3 label cursor-pointer hover:sand transition-colors" onclick="sortSkills(0)">Skill</th>
+          <th class="px-4 py-3 label text-center cursor-pointer hover:sand transition-colors" onclick="sortSkills(1)">Level</th>
+          <th class="px-4 py-3 label text-right cursor-pointer hover:sand transition-colors" onclick="sortSkills(2)">SP</th>
+        </tr>
+      </thead>
+      <tbody id="skillBody">
+        {% for s in skills %}
+        <tr class="row border-b border-dune-border border-opacity-30 skill-row" data-name="{{ s.skill_name | lower }}">
+          <td class="px-4 py-2 font-display text-dune-text">{{ s.skill_name or s.skill_id }}</td>
+          <td class="px-4 py-2 text-center">
+            <span class="inline-flex gap-0.5">
+              {% for i in range(5) %}
+                <span class="w-2.5 h-2.5 rounded-sm inline-block"
+                  style="background:{% if i < s.trained_level %}#c8a96e{% else %}#2a2d35{% endif %}"></span>
+              {% endfor %}
+            </span>
+          </td>
+          <td class="px-4 py-2 text-right font-mono text-xs text-dune-muted">{{ '{:,}'.format(s.skillpoints or 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card p-8 text-center text-dune-muted font-display">
+    No skill data. Trigger a sync to populate.
+  </div>
+  {% endif %}
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -453,14 +500,36 @@ function toggleSlot(id) {
 }
 
 function switchTab(name) {
-  document.getElementById('panel-overview').style.display = name === 'overview' ? '' : 'none';
-  document.getElementById('panel-fitting').style.display  = name === 'fitting'  ? '' : 'none';
+  ['overview','fitting','skills'].forEach(t => {
+    document.getElementById('panel-' + t).style.display = t === name ? '' : 'none';
+  });
   document.querySelectorAll('.tab-btn').forEach(b => {
     const active = b.id === 'tab-' + name;
     b.style.borderBottomColor = active ? '#c8a96e' : 'transparent';
     b.style.color = active ? '#c8a96e' : '#6b7280';
   });
   if (name === 'fitting') loadFitting();
+}
+
+function filterSkills(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('.skill-row').forEach(r => {
+    r.style.display = r.dataset.name.includes(q) ? '' : 'none';
+  });
+}
+let _skillSortDir = {};
+function sortSkills(col) {
+  const tbody = document.getElementById('skillBody');
+  const rows  = Array.from(tbody.querySelectorAll('.skill-row'));
+  _skillSortDir[col] = !_skillSortDir[col];
+  rows.sort((a, b) => {
+    const av = a.children[col].textContent.trim().replace(/,/g,'');
+    const bv = b.children[col].textContent.trim().replace(/,/g,'');
+    const an = parseFloat(av), bn = parseFloat(bv);
+    const cmp = isNaN(an) ? av.localeCompare(bv) : (an - bn);
+    return _skillSortDir[col] ? cmp : -cmp;
+  });
+  rows.forEach(r => tbody.appendChild(r));
 }
 
 
