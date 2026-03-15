@@ -63,6 +63,27 @@ class Analytics:
             },
         )
 
+    def capture_session_start(self, character_id: int, props: dict):
+        self.client.capture(
+            distinct_id=str(character_id),
+            event="session_start",
+            properties=props,
+        )
+
+    def capture_session_end(self, character_id: int, props: dict):
+        self.client.capture(
+            distinct_id=str(character_id),
+            event="session_end",
+            properties=props,
+        )
+
+    def capture_ship_loss(self, character_id: int, props: dict):
+        self.client.capture(
+            distinct_id=str(character_id),
+            event="ship_loss",
+            properties=props,
+        )
+
     def capture_hourly_snapshot(self, character_id: int, snap: dict):
         props = {k: v for k, v in snap.items() if k not in ("character_id", "captured_at")}
         self.client.capture(

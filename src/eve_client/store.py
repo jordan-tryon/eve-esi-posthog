@@ -43,7 +43,23 @@ class SnapshotStore:
                 isk_hour_other   REAL,
                 risk_level       TEXT,
                 activity_type    TEXT,
-                recent_losses    INTEGER DEFAULT 0
+                recent_losses    INTEGER DEFAULT 0,
+                online           INTEGER,
+                last_login       TEXT,
+                last_logout      TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS sessions (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_id     INTEGER NOT NULL,
+                started_at       TEXT NOT NULL,
+                ended_at         TEXT,
+                ship_type_id     INTEGER,
+                ship_name        TEXT,
+                solar_system_id  INTEGER,
+                system_name      TEXT,
+                security_status  REAL,
+                isk_earned       REAL
             );
 
             CREATE TABLE IF NOT EXISTS wallet_journal (
@@ -77,6 +93,19 @@ class SnapshotStore:
                 PRIMARY KEY (character_id, skill_id)
             );
         """)
+        self.conn.commit()
+        self._migrate()
+
+    def _migrate(self):
+        """Add columns that didn't exist in earlier schema versions."""
+        existing = {row[1] for row in self.conn.execute("PRAGMA table_info(snapshots)").fetchall()}
+        for col, typedef in [
+            ("online",      "INTEGER"),
+            ("last_login",  "TEXT"),
+            ("last_logout", "TEXT"),
+        ]:
+            if col not in existing:
+                self.conn.execute(f"ALTER TABLE snapshots ADD COLUMN {col} {typedef}")
         self.conn.commit()
 
     # --- Snapshots ---
@@ -198,3 +227,33 @@ class SnapshotStore:
             (character_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # --- Sessions ---
+
+    def save_session_start(self, character_id: int, started_at: str, ship_type_id: int | None,
+                           ship_name: str | None, solar_system_id: int | None,
+                           system_name: str | None, security_status: float | None) -> int:
+        cur = self.conn.execute(
+            """INSERT INTO sessions (character_id, started_at, ship_type_id, ship_name,
+               solar_system_id, system_name, security_status)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (character_id, started_at, ship_type_id, ship_name,
+             solar_system_id, system_name, security_status),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def close_session(self, character_id: int, started_at: str, ended_at: str, isk_earned: float):
+        self.conn.execute(
+            """UPDATE sessions SET ended_at=?, isk_earned=?
+               WHERE character_id=? AND started_at=? AND ended_at IS NULL""",
+            (ended_at, isk_earned, character_id, started_at),
+        )
+        self.conn.commit()
+
+    def get_open_session(self, character_id: int) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM sessions WHERE character_id=? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
+            (character_id,),
+        ).fetchone()
+        return dict(row) if row else None
