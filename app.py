@@ -209,13 +209,14 @@ def api_history(character_id: int, hours: int = 168):
 def api_fitting(character_id: int):
     token = auth.get_valid_token(character_id)
     esi   = ESIClient(access_token=token)
-    from collections import defaultdict
 
     ship       = esi.get_ship(character_id)
     ship_item  = ship["ship_item_id"]
     type_info  = esi.get_type_info(ship["ship_type_id"])
     all_assets = esi.get_assets_all(character_id)
     fitted     = [a for a in all_assets if a.get("location_id") == ship_item]
+    prices_raw = esi.get_market_prices()
+    price_map  = {p["type_id"]: p.get("adjusted_price", 0.0) for p in prices_raw}
 
     type_ids = list({a["type_id"] for a in fitted})
     names    = {
@@ -234,17 +235,34 @@ def api_fitting(character_id: int):
     }
     slots = defaultdict(list)
     for item in fitted:
-        flag = item.get("location_flag", "Other")
-        name = names.get(item["type_id"], str(item["type_id"]))
+        flag     = item.get("location_flag", "Other")
+        name     = names.get(item["type_id"], str(item["type_id"]))
+        qty      = item.get("quantity", 1)
+        val      = round(qty * price_map.get(item["type_id"], 0.0), 2)
         for group, flags in SLOT_GROUPS.items():
             if flag in flags:
-                slots[group].append({"name": name, "qty": item.get("quantity", 1), "flag": flag})
+                slots[group].append({"name": name, "qty": qty, "flag": flag, "value": val})
                 break
         else:
-            slots["other"].append({"name": name, "qty": item.get("quantity", 1), "flag": flag})
+            slots["other"].append({"name": name, "qty": qty, "flag": flag, "value": val})
 
-    return {"ship_name": ship["ship_name"], "ship_type": type_info.get("name"),
-            "ship_type_id": ship["ship_type_id"], "slots": dict(slots)}
+    hull_value  = round(price_map.get(ship["ship_type_id"], 0.0), 2)
+    slot_totals = {grp: round(sum(i["value"] for i in items), 2) for grp, items in slots.items()}
+    total_value = round(hull_value + sum(slot_totals.values()), 2)
+
+    location = esi.get_location(character_id)
+    in_space = not location.get("station_id") and not location.get("structure_id")
+
+    return {
+        "ship_name":       ship["ship_name"],
+        "ship_type":       type_info.get("name"),
+        "ship_type_id":    ship["ship_type_id"],
+        "hull_value":      hull_value,
+        "total_value":     total_value,
+        "slot_totals":     slot_totals,
+        "slots":           dict(slots),
+        "in_space":        in_space,
+    }
 
 
 @app.post("/api/c/{character_id}/sync")
