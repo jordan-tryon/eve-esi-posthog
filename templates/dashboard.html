@@ -114,6 +114,15 @@
   <canvas id="iskHourChart" height="80"></canvas>
 </div>
 
+<!-- Fitting panel -->
+<div class="card p-4 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <p class="text-eve-muted text-xs uppercase tracking-wider">Current Fitting</p>
+    <span id="fittingShipName" class="text-eve-muted text-xs"></span>
+  </div>
+  <div id="fittingPanel" class="text-eve-muted text-sm">Loading…</div>
+</div>
+
 <!-- Recent snapshots table -->
 <div class="card p-4">
   <p class="text-eve-muted text-xs uppercase tracking-wider mb-3">Recent Snapshots</p>
@@ -253,5 +262,60 @@ async function loadCharts() {
 }
 
 loadCharts();
+loadFitting();
+
+async function loadFitting() {
+  const panel = document.getElementById('fittingPanel');
+  const shipLabel = document.getElementById('fittingShipName');
+  try {
+    const res = await fetch('/api/fitting');
+    const data = await res.json();
+    if (data.error) { panel.textContent = data.error; return; }
+
+    shipLabel.textContent = `${data.ship_name} (${data.ship_type})`;
+
+    const GROUPS = [
+      { key: 'high',  label: 'High Slots',  color: '#f87171' },
+      { key: 'mid',   label: 'Mid Slots',   color: '#60a5fa' },
+      { key: 'low',   label: 'Low Slots',   color: '#facc15' },
+      { key: 'rig',   label: 'Rigs',        color: '#a78bfa' },
+      { key: 'drone', label: 'Drones',      color: '#4ade80' },
+      { key: 'cargo', label: 'Cargo',       color: '#6a84a8' },
+    ];
+
+    const slots = data.slots;
+    const hasModules = GROUPS.slice(0, 4).some(g => (slots[g.key] || []).length > 0);
+
+    if (!hasModules) {
+      panel.innerHTML = '<span class="text-eve-muted">No fitted modules found.</span>';
+      return;
+    }
+
+    let html = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">';
+
+    for (const { key, label, color } of GROUPS) {
+      const items = slots[key] || [];
+      if (!items.length) continue;
+
+      html += `<div>
+        <p class="text-xs font-semibold mb-2" style="color:${color}">${label}</p>
+        <ul class="space-y-1">`;
+      for (const item of items) {
+        const qty = item.qty > 1 ? `<span class="text-eve-muted ml-1">×${item.qty}</span>` : '';
+        html += `<li class="flex items-center gap-2">
+          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:${color}"></span>
+          <span class="text-eve-text text-sm">${item.name}${qty}</span>
+        </li>`;
+      }
+      html += '</ul></div>';
+    }
+
+    html += '</div>';
+    panel.innerHTML = html;
+
+  } catch (e) {
+    panel.textContent = 'Failed to load fitting.';
+  }
+}
 </script>
 {% endblock %}

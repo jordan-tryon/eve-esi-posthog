@@ -97,3 +97,21 @@ class ESIClient:
 
     def get_online(self, character_id: int) -> dict:
         return self._get(f"/characters/{character_id}/online/")
+
+    def get_assets(self, character_id: int, page: int = 1) -> list:
+        return self._get(f"/characters/{character_id}/assets/", {"page": page})
+
+    def get_assets_all(self, character_id: int) -> list:
+        url = f"{ESI_BASE}/characters/{character_id}/assets/"
+        all_assets = []
+        page = 1
+        while True:
+            with httpx.Client() as client:
+                resp = client.get(url, headers=self._headers,
+                                  params={"datasource": DEFAULT_DATASOURCE, "page": page}, timeout=30)
+                resp.raise_for_status()
+                all_assets.extend(resp.json())
+                if page >= int(resp.headers.get("X-Pages", 1)):
+                    break
+                page += 1
+        return all_assets

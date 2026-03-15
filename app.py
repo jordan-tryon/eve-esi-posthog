@@ -18,6 +18,7 @@ load_dotenv()
 
 from src.eve_client.analytics import Analytics
 from src.eve_client.auth import EveAuth
+from src.eve_client.esi import ESIClient
 from src.eve_client.hourly_pipeline import run_hourly_snapshot
 from src.eve_client.store import SnapshotStore
 
@@ -166,6 +167,57 @@ def api_sync(background_tasks: BackgroundTasks):
 @app.get("/api/status")
 def api_status():
     return _sync_status
+
+
+@app.get("/api/fitting")
+def api_fitting():
+    if not _is_authed():
+        return JSONResponse({"error": "not authenticated"}, status_code=401)
+    from collections import defaultdict
+    token = auth.get_valid_token()
+    esi = ESIClient(access_token=token)
+
+    ship = esi.get_ship(CHARACTER_ID)
+    ship_item_id = ship["ship_item_id"]
+    type_info = esi.get_type_info(ship["ship_type_id"])
+
+    all_assets = esi.get_assets_all(CHARACTER_ID)
+    fitted = [a for a in all_assets if a.get("location_id") == ship_item_id]
+
+    type_ids = list({a["type_id"] for a in fitted})
+    names = {
+        e["id"]: e["name"]
+        for e in esi.get_universe_names(type_ids)
+        if e.get("category") == "inventory_type"
+    }
+
+    SLOT_GROUPS = {
+        "high":  [f"HiSlot{i}"  for i in range(8)],
+        "mid":   [f"MedSlot{i}" for i in range(8)],
+        "low":   [f"LoSlot{i}"  for i in range(8)],
+        "rig":   [f"RigSlot{i}" for i in range(3)],
+        "drone": ["DroneBay"],
+        "cargo": ["Cargo"],
+    }
+
+    slots = defaultdict(list)
+    for item in fitted:
+        flag = item.get("location_flag", "Other")
+        name = names.get(item["type_id"], str(item["type_id"]))
+        qty  = item.get("quantity", 1)
+        for group, flags in SLOT_GROUPS.items():
+            if flag in flags:
+                slots[group].append({"name": name, "qty": qty, "flag": flag})
+                break
+        else:
+            slots["other"].append({"name": name, "qty": qty, "flag": flag})
+
+    return {
+        "ship_name":    ship["ship_name"],
+        "ship_type":    type_info.get("name"),
+        "ship_type_id": ship["ship_type_id"],
+        "slots":        dict(slots),
+    }
 
 
 if __name__ == "__main__":
