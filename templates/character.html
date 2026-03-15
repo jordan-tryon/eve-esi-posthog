@@ -500,70 +500,94 @@ function toggleSlot(id) {
   if (chv) chv.textContent  = open ? '▼' : '▶';
 }
 
+function _pct2color(pct) {
+  return pct >= 90 ? '#5a9e6f' : pct >= 70 ? '#c8a96e' : '#d4742a';
+}
+
+function _skillPips(trained, required, maxPips) {
+  return Array.from({length: maxPips || 5}, (_, i) => {
+    let bg;
+    if (i < trained)        bg = '#c8a96e';       // trained
+    else if (i < required)  bg = '#6b7280';       // gap to minimum
+    else                    bg = '#2a2d35';        // above min, untrained
+    return `<span class="inline-block w-2 h-2 rounded-sm mr-0.5" style="background:${bg}"></span>`;
+  }).join('');
+}
+
+function _renderCategoryCard(cat, key) {
+  if (!cat.present || !cat.skills.length) return '';
+  const color = _pct2color(cat.score);
+  const id = 'optCat_' + key;
+
+  let rows = '';
+  for (const r of cat.skills) {
+    const pips = _skillPips(r.trained, r.required, 5);
+    const perfPct = Math.round(r.trained / 5 * 100);
+    const perfColor = _pct2color(perfPct);
+    rows += `<tr class="border-b border-dune-border border-opacity-20">
+      <td class="py-1.5 pr-3 text-dune-text text-xs font-display">${r.skill_name}</td>
+      <td class="py-1.5 pr-3">${pips}</td>
+      <td class="py-1.5 text-right font-mono text-xs" style="color:${perfColor}">${perfPct}%</td>
+      <td class="py-1.5 pl-3 text-xs text-dune-muted font-mono hidden md:table-cell">${r.required_by}</td>
+    </tr>`;
+  }
+
+  return `<div class="card p-4">
+    <div class="flex items-center justify-between mb-2">
+      <p class="label tracking-widest">${cat.label}</p>
+      <span class="font-mono text-base font-700" style="color:${color}">${cat.score}%</span>
+    </div>
+    <div class="w-full rounded-sm overflow-hidden mb-3" style="height:5px;background:#2a2d35">
+      <div style="width:${cat.score}%;height:100%;background:${color};transition:width 0.7s ease"></div>
+    </div>
+    <button class="text-xs text-dune-muted font-mono hover:sand transition-colors w-full text-left"
+      onclick="toggleSlot('${id}')">
+      <span id="${id}_chv">▶</span> ${cat.skills.length} skill${cat.skills.length!==1?'s':''}
+    </button>
+    <div id="${id}" style="display:none" class="mt-2">
+      <table class="w-full">
+        <thead><tr class="border-b border-dune-border text-left">
+          <th class="pb-1.5 pr-3 label text-xs">Skill</th>
+          <th class="pb-1.5 pr-3 label text-xs">Training</th>
+          <th class="pb-1.5 label text-right text-xs">Perf.</th>
+          <th class="pb-1.5 pl-3 label text-xs hidden md:table-cell">Required by</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
 let _optimalLoaded = false;
 async function loadOptimal() {
   if (_optimalLoaded) return;
   const panel = document.getElementById('optimalPanel');
-  panel.innerHTML = '<p class="text-dune-muted text-xs font-mono mt-2">Calculating optimal rating…</p>';
+  panel.innerHTML = '<p class="text-dune-muted text-xs font-mono mt-2">Calculating performance rating…</p>';
   try {
     const data = await (await fetch(`/api/c/${CID}/optimal`)).json();
     if (data.error) { panel.innerHTML = ''; return; }
     _optimalLoaded = true;
 
-    const pct = data.optimal_pct;
-    const barColor = pct >= 100 ? '#5a9e6f' : pct >= 75 ? '#c8a96e' : '#d4742a';
-    const unmet = data.requirements.filter(r => !r.met);
-    const met   = data.requirements.filter(r =>  r.met);
-
-    let html = `<div class="card p-4 mt-4">
-      <div class="flex items-center justify-between mb-3">
-        <p class="label">Flying Optimal</p>
-        <span class="font-mono text-lg" style="color:${barColor}">${pct}%</span>
+    const overallColor = _pct2color(data.overall);
+    let html = `<div class="mt-4">
+      <div class="flex items-center justify-between mb-3 pb-3 border-b border-dune-border">
+        <div>
+          <p class="label mb-0.5">Flying Optimal</p>
+          <p class="text-dune-muted text-xs font-mono">${data.ship_name} · ${data.ship_type}</p>
+        </div>
+        <span class="font-mono text-2xl font-700" style="color:${overallColor}">${data.overall}%</span>
       </div>
-      <div class="w-full rounded-sm overflow-hidden mb-4" style="height:6px;background:#2a2d35">
-        <div style="width:${pct}%;height:100%;background:${barColor};transition:width 0.6s ease"></div>
-      </div>`;
+      <div class="grid grid-cols-1 md:grid-cols-${data.categories.damage.present ? 3 : 2} gap-3">`;
 
-    if (unmet.length === 0) {
-      html += `<p class="text-xs font-mono sec-high">All skill requirements met for ${data.ship_name}.</p>`;
-    } else {
-      html += `<p class="label mb-2 spice">Missing / Undertrained (${unmet.length})</p>
-        <table class="w-full text-sm font-display mb-4">`;
-      for (const r of unmet) {
-        const pips = Array.from({length:5}, (_,i) =>
-          `<span class="inline-block w-2 h-2 rounded-sm mr-0.5" style="background:${i < r.trained ? '#d4742a' : i < r.required ? '#6b7280' : '#2a2d35'}"></span>`
-        ).join('');
-        html += `<tr class="border-b border-dune-border border-opacity-30">
-          <td class="py-1.5 pr-3 text-dune-text">${r.skill_name}</td>
-          <td class="py-1.5 pr-3">${pips}</td>
-          <td class="py-1.5 text-xs text-dune-muted font-mono">${r.trained}/${r.required} · ${r.required_by}</td>
-        </tr>`;
-      }
-      html += `</table>`;
+    html += _renderCategoryCard(data.categories.navigation, 'nav');
+    if (data.categories.damage.present) {
+      html += _renderCategoryCard(data.categories.damage, 'dmg');
     }
+    html += _renderCategoryCard(data.categories.utility, 'util');
 
-    if (met.length > 0) {
-      html += `<button class="text-xs text-dune-muted font-mono hover:sand transition-colors" onclick="toggleSlot('optMet')">
-        ▶ ${met.length} requirement${met.length!==1?'s':''} met
-      </button>
-      <div id="optMet" style="display:none" class="mt-2">
-        <table class="w-full text-sm font-display">`;
-      for (const r of met) {
-        const pips = Array.from({length:5}, (_,i) =>
-          `<span class="inline-block w-2 h-2 rounded-sm mr-0.5" style="background:${i < r.trained ? '#5a9e6f' : '#2a2d35'}"></span>`
-        ).join('');
-        html += `<tr class="border-b border-dune-border border-opacity-20">
-          <td class="py-1 pr-3 text-dune-muted text-xs">${r.skill_name}</td>
-          <td class="py-1 pr-3">${pips}</td>
-          <td class="py-1 text-xs text-dune-muted font-mono">${r.trained}/${r.required}</td>
-        </tr>`;
-      }
-      html += `</table></div>`;
-    }
-
-    html += `</div>`;
+    html += `</div></div>`;
     panel.innerHTML = html;
-  } catch(e) { panel.innerHTML = `<p class="text-dune-muted text-xs">Failed to load optimal rating.</p>`; }
+  } catch(e) { panel.innerHTML = `<p class="text-dune-muted text-xs mt-2">Failed to load performance rating.</p>`; }
 }
 
 function switchTab(name) {

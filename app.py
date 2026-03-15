@@ -281,28 +281,34 @@ def _extract_skill_reqs(type_info: dict) -> list[dict]:
     return reqs
 
 
+# Skill group → performance category
+# Navigation (speed/agility/durability): Navigation, Spaceship Command, Engineering, Armor, Shields
+_NAV_GROUPS  = {257, 275, 1216, 1210, 1209}
+# Damage: Gunnery, Missile Launcher Operation, Drones
+_DMG_GROUPS  = {255, 256, 273}
+# Utility: everything else (Scanning/Science 1217/272, Electronics 270, etc.)
+
+
 @app.get("/api/c/{character_id}/optimal")
 def api_optimal(character_id: int):
     token = auth.get_valid_token(character_id)
     esi   = ESIClient(access_token=token)
 
-    # Get current ship + fitted modules
+    # Get ship + fitted modules (excluding cargo/drones)
     ship       = esi.get_ship(character_id)
     ship_item  = ship["ship_item_id"]
     all_assets = esi.get_assets_all(character_id)
     fitted     = [a for a in all_assets if a.get("location_id") == ship_item]
 
-    # Collect all type_ids: ship hull + fitted modules (exclude cargo)
     CARGO_FLAGS = {"Cargo", "DroneBay"}
     module_type_ids = {ship["ship_type_id"]}
     for a in fitted:
         if a.get("location_flag") not in CARGO_FLAGS:
             module_type_ids.add(a["type_id"])
 
-    # Fetch type info for each and extract skill requirements
-    # Aggregate: for each skill, take the MAX required level across all items
-    all_reqs: dict[int, dict] = {}  # skill_id -> {level, items: [name]}
-    item_names = {}
+    # Collect MAX required level per skill across all ship + module type_info
+    all_reqs: dict[int, dict] = {}
+    item_names: dict[int, str] = {}
     for tid in module_type_ids:
         try:
             info = esi.get_type_info(tid)
@@ -314,48 +320,74 @@ def api_optimal(character_id: int):
         except Exception:
             pass
 
-    # Resolve skill requirement names
     req_skill_ids = list(all_reqs.keys())
     skill_names: dict[int, str] = {}
+    skill_groups: dict[int, int] = {}
     if req_skill_ids:
         try:
             resolved = esi.get_universe_names(req_skill_ids)
             skill_names = {e["id"]: e["name"] for e in resolved if e.get("category") == "inventory_type"}
         except Exception:
             pass
+        for sid in req_skill_ids:
+            try:
+                skill_groups[sid] = esi.get_type_info(sid).get("group_id", 0)
+            except Exception:
+                skill_groups[sid] = 0
 
-    # Get character's trained skills
     char_skills = store.get_skills_map(character_id)
 
-    # Build results
-    results = []
-    total_score = 0.0
-    max_score   = 0.0
-
+    # Bucket skills by category
+    nav_reqs: dict[int, dict] = {}
+    dmg_reqs: dict[int, dict] = {}
+    util_reqs: dict[int, dict] = {}
     for sid, req in all_reqs.items():
-        required = req["level"]
-        trained  = char_skills.get(sid, 0)
-        score    = min(trained, required) / required
-        total_score += score
-        max_score   += 1.0
-        results.append({
-            "skill_id":    sid,
-            "skill_name":  skill_names.get(sid, f"Skill {sid}"),
-            "required":    required,
-            "trained":     trained,
-            "met":         trained >= required,
-            "required_by": req["required_by"],
-        })
+        g = skill_groups.get(sid, 0)
+        if g in _NAV_GROUPS:
+            nav_reqs[sid] = req
+        elif g in _DMG_GROUPS:
+            dmg_reqs[sid] = req
+        else:
+            util_reqs[sid] = req
 
-    results.sort(key=lambda r: (r["met"], r["trained"] - r["required"]))
-    optimal_pct = round((total_score / max_score * 100) if max_score else 100, 1)
+    def _score_bucket(reqs: dict) -> tuple[float, list]:
+        """Score = sum(trained/5 * weight) / sum(weight), weight = required_level."""
+        total, max_total = 0.0, 0.0
+        details = []
+        for sid, req in reqs.items():
+            trained  = char_skills.get(sid, 0)
+            required = req["level"]
+            w = required
+            total     += min(trained, 5) * w
+            max_total += 5 * w
+            details.append({
+                "skill_id":    sid,
+                "skill_name":  skill_names.get(sid, f"Skill {sid}"),
+                "trained":     trained,
+                "required":    required,
+                "required_by": req["required_by"],
+            })
+        pct = round(total / max_total * 100, 1) if max_total else 100.0
+        details.sort(key=lambda r: r["trained"] / 5)
+        return pct, details
+
+    nav_pct,  nav_skills  = _score_bucket(nav_reqs)
+    dmg_pct,  dmg_skills  = _score_bucket(dmg_reqs)
+    util_pct, util_skills = _score_bucket(util_reqs)
+
+    has_damage = bool(dmg_reqs)
+    cat_scores = [nav_pct, util_pct] + ([dmg_pct] if has_damage else [])
+    overall    = round(sum(cat_scores) / len(cat_scores), 1) if cat_scores else 100.0
 
     return {
-        "ship_name":   ship["ship_name"],
-        "ship_type":   item_names.get(ship["ship_type_id"], "Unknown"),
-        "optimal_pct": optimal_pct,
-        "fully_optimal": optimal_pct >= 100.0,
-        "requirements": results,
+        "ship_name":  ship["ship_name"],
+        "ship_type":  item_names.get(ship["ship_type_id"], "Unknown"),
+        "overall":    overall,
+        "categories": {
+            "navigation": {"label": "Navigation & Durability", "score": nav_pct,  "skills": nav_skills,  "present": True},
+            "damage":     {"label": "Damage",                  "score": dmg_pct,  "skills": dmg_skills,  "present": has_damage},
+            "utility":    {"label": "Utility",                 "score": util_pct, "skills": util_skills, "present": bool(util_reqs)},
+        },
     }
 
 
