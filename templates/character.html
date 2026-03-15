@@ -40,7 +40,7 @@
 {% endif %}
 
 <!-- Metric cards -->
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
 
   <div class="card p-4">
     <p class="label mb-2">Wallet</p>
@@ -82,6 +82,14 @@
     {% if c.total_sp %}
     <p class="text-xs font-mono text-dune-muted mt-0.5">{{ '{:,.0f}'.format(c.total_sp) }} SP</p>
     {% endif %}
+  </div>
+
+  <div class="card p-4">
+    <p class="label mb-2">Est. Value</p>
+    <p class="metric-val sand">
+      {% if c.estimated_value %}{{ '{:,.0f}'.format(c.estimated_value / 1e9) }}{% else %}—{% endif %}
+    </p>
+    <p class="text-dune-muted text-xs font-mono mt-0.5">billion ISK</p>
   </div>
 
 </div>

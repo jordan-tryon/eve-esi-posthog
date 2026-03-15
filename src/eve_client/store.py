@@ -120,9 +120,10 @@ class SnapshotStore:
         """Add columns that didn't exist in earlier schema versions."""
         existing = {row[1] for row in self.conn.execute("PRAGMA table_info(snapshots)").fetchall()}
         for col, typedef in [
-            ("online",      "INTEGER"),
-            ("last_login",  "TEXT"),
-            ("last_logout", "TEXT"),
+            ("online",           "INTEGER"),
+            ("last_login",       "TEXT"),
+            ("last_logout",      "TEXT"),
+            ("estimated_value",  "REAL"),
         ]:
             if col not in existing:
                 self.conn.execute(f"ALTER TABLE snapshots ADD COLUMN {col} {typedef}")

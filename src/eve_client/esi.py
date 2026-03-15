@@ -98,6 +98,10 @@ class ESIClient:
     def get_online(self, character_id: int) -> dict:
         return self._get(f"/characters/{character_id}/online/")
 
+    def get_market_prices(self) -> list:
+        """Public endpoint — returns adjusted_price and average_price per type_id."""
+        return self._get("/markets/prices/")
+
     def get_assets(self, character_id: int, page: int = 1) -> list:
         return self._get(f"/characters/{character_id}/assets/", {"page": page})
 

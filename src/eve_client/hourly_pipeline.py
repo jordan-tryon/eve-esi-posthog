@@ -34,13 +34,15 @@ def run_hourly_snapshot(
     esi = ESIClient(access_token=token)
 
     # --- Fetch raw ESI data ---
-    public_info  = _safe(lambda: esi.get_public_info(character_id), {})
+    public_info    = _safe(lambda: esi.get_public_info(character_id), {})
     wallet_balance = _safe(lambda: esi.get_wallet(character_id), 0.0)
-    journal_raw  = _safe(lambda: esi.get_wallet_journal(character_id), [])
-    location     = _safe(lambda: esi.get_location(character_id), {})
-    ship         = _safe(lambda: esi.get_ship(character_id), {})
-    skills_data  = _safe(lambda: esi.get_skills(character_id), {})
-    online_info  = _safe(lambda: esi.get_online(character_id), {})
+    journal_raw    = _safe(lambda: esi.get_wallet_journal(character_id), [])
+    location       = _safe(lambda: esi.get_location(character_id), {})
+    ship           = _safe(lambda: esi.get_ship(character_id), {})
+    skills_data    = _safe(lambda: esi.get_skills(character_id), {})
+    online_info    = _safe(lambda: esi.get_online(character_id), {})
+    all_assets     = _safe(lambda: esi.get_assets_all(character_id), [])
+    market_prices  = _safe(lambda: esi.get_market_prices(), [])
 
     # Resolve system info
     system_id   = location.get("solar_system_id")
@@ -199,6 +201,15 @@ def run_hourly_snapshot(
 
     risk_level = compute_risk_level(security_status, ship_group_id, recent_losses)
 
+    # --- Estimated total account value = wallet + assets at adjusted market price ---
+    price_map = {p["type_id"]: p.get("adjusted_price", 0.0) for p in market_prices}
+    asset_value = sum(
+        a.get("quantity", 1) * price_map.get(a["type_id"], 0.0)
+        for a in all_assets
+    )
+    estimated_value = round((wallet_balance or 0.0) + asset_value, 2)
+    print(f"  [value] wallet={wallet_balance:,.0f}  assets={asset_value:,.0f}  total={estimated_value:,.0f}")
+
     # --- Build and save snapshot ---
     snap = {
         "character_id":    character_id,
@@ -224,9 +235,10 @@ def run_hourly_snapshot(
         "risk_level":      risk_level,
         "activity_type":   activity_type,
         "recent_losses":   recent_losses,
-        "online":          int(is_online),
-        "last_login":      last_login,
-        "last_logout":     last_logout,
+        "online":           int(is_online),
+        "last_login":       last_login,
+        "last_logout":      last_logout,
+        "estimated_value":  estimated_value,
     }
 
     store.save_snapshot(snap)
