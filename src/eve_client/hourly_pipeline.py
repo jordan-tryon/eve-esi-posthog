@@ -30,7 +30,7 @@ def run_hourly_snapshot(
     now = _utcnow()
     print(f"[sync] {now} — character {character_id}")
 
-    token = auth.get_valid_token()
+    token = auth.get_valid_token(character_id)
     esi = ESIClient(access_token=token)
 
     # --- Fetch raw ESI data ---
@@ -52,6 +52,10 @@ def run_hourly_snapshot(
     ship_type_id  = ship.get("ship_type_id")
     type_info     = _safe(lambda: esi.get_type_info(ship_type_id), {}) if ship_type_id else {}
     ship_group_id = type_info.get("group_id")
+
+    # Keep characters table current
+    if public_info:
+        store.upsert_character(character_id, public_info)
 
     # Online / session state
     is_online   = bool(online_info.get("online"))

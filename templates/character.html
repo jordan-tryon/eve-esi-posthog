@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+{% block title %}{{ character.character_name }} — Arrakis Tracker{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+
+{% set c = current %}
+{% set cid = character.character_id %}
+
+<!-- Header -->
+<div class="flex items-center gap-5 mb-6">
+  <img src="https://images.evetech.net/characters/{{ cid }}/portrait?size=128"
+       class="w-16 h-16 rounded-sm border border-dune-border grayscale flex-shrink-0" style="filter:grayscale(30%)" />
+  <div class="flex-1">
+    <div class="flex items-center gap-3 flex-wrap mb-0.5">
+      <h1 class="font-display font-700 text-2xl text-dune-bright tracking-wider">{{ character.character_name }}</h1>
+      {% if c.online %}
+        <span class="badge-online text-xs px-2 py-0.5 rounded-sm border font-display font-600 tracking-widest">ONLINE</span>
+      {% else %}
+        <span class="badge-offline text-xs px-2 py-0.5 rounded-sm border font-display tracking-widest">OFFLINE</span>
+      {% endif %}
+    </div>
+    <p class="text-dune-muted text-xs font-mono">
+      {% if c.captured_at %}synced {{ c.captured_at[:19].replace('T',' ') }} UTC{% else %}never synced{% endif %}
+    </p>
+  </div>
+  <div class="flex gap-2">
+    <a href="/skills/{{ cid }}" class="btn-ghost text-sm px-3 py-1.5 rounded-sm">Skills</a>
+    <button onclick="triggerSync({{ cid }})" id="syncBtn" class="btn-sand text-sm px-4 py-1.5 rounded-sm">Sync Now</button>
+  </div>
+</div>
+
+{% if sync_status.error %}
+<div class="mb-4 px-4 py-2 rounded-sm border border-red-900 text-red-400 text-sm font-mono" style="background:rgba(120,40,40,0.15)">
+  ⚠ {{ sync_status.error }}
+</div>
+{% endif %}
+
+<!-- Metric cards -->
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+
+  <div class="card p-4">
+    <p class="label mb-2">Wallet</p>
+    <p class="metric-val">
+      {% if c.wallet_balance is not none %}{{ '{:,.0f}'.format(c.wallet_balance) }}{% else %}—{% endif %}
+    </p>
+    <p class="text-dune-muted text-xs font-mono mt-0.5">ISK</p>
+  </div>
+
+  <div class="card p-4">
+    <p class="label mb-2">ISK / Hour</p>
+    <p class="metric-val sand">
+      {% if c.isk_hour is not none %}{{ '{:,.0f}'.format(c.isk_hour) }}{% else %}—{% endif %}
+    </p>
+    <p class="text-dune-muted text-xs font-display mt-0.5">{{ c.activity_type or '—' }}</p>
+  </div>
+
+  <div class="card p-4">
+    <p class="label mb-2">Risk</p>
+    <p class="metric-val risk-{{ c.risk_level or 'LOW' }}">{{ c.risk_level or '—' }}</p>
+    {% if c.recent_losses %}
+    <p class="text-xs spice mt-0.5 font-display">{{ c.recent_losses }} loss(es) / 24h</p>
+    {% endif %}
+  </div>
+
+  <div class="card p-4">
+    <p class="label mb-2">Location</p>
+    <p class="font-display font-600 text-dune-bright truncate">{{ c.system_name or '—' }}</p>
+    {% if c.security_status is not none %}
+    <p class="text-xs font-mono mt-0.5 {% if c.security_status >= 0.45 %}sec-high{% elif c.security_status >= 0.05 %}sec-low{% else %}sec-null{% endif %}">
+      {{ '%.2f'|format(c.security_status) }}
+    </p>
+    {% endif %}
+  </div>
+
+  <div class="card p-4">
+    <p class="label mb-2">Ship</p>
+    <p class="font-display font-600 text-dune-bright truncate">{{ c.ship_name or '—' }}</p>
+    {% if c.total_sp %}
+    <p class="text-xs font-mono text-dune-muted mt-0.5">{{ '{:,.0f}'.format(c.total_sp) }} SP</p>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Charts -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-6">
+  <div class="card p-4 lg:col-span-2">
+    <p class="label mb-3">Wallet Balance</p>
+    <canvas id="walletChart" height="110"></canvas>
+  </div>
+  <div class="card p-4">
+    <p class="label mb-3">ISK Sources</p>
+    <canvas id="activityChart" height="170"></canvas>
+  </div>
+</div>
+
+<div class="card p-4 mb-6">
+  <p class="label mb-3">ISK / Hour History</p>
+  <canvas id="iskHourChart" height="80"></canvas>
+</div>
+
+<!-- Fitting -->
+<div class="card p-4 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <p class="label">Current Fitting</p>
+    <span id="fittingShipName" class="text-dune-muted text-xs font-mono"></span>
+  </div>
+  <div id="fittingPanel" class="text-dune-muted text-sm">Loading…</div>
+</div>
+
+<!-- Sessions + Losses -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
+
+  <div class="card p-4">
+    <p class="label mb-3">Recent Sessions</p>
+    {% if sessions %}
+    <table class="w-full text-sm font-display">
+      <thead><tr class="border-b border-dune-border text-left">
+        <th class="pb-2 pr-3 label">Started</th>
+        <th class="pb-2 pr-3 label">Ended</th>
+        <th class="pb-2 label">ISK Earned</th>
+      </tr></thead>
+      <tbody>
+        {% for s in sessions %}
+        <tr class="row border-b border-dune-border border-opacity-40">
+          <td class="py-1.5 pr-3 text-dune-muted font-mono text-xs">{{ s.started_at[:16].replace('T',' ') }}</td>
+          <td class="py-1.5 pr-3 font-mono text-xs">
+            {% if s.ended_at %}{{ s.ended_at[:16].replace('T',' ') }}
+            {% else %}<span class="sec-high">Active</span>{% endif %}
+          </td>
+          <td class="py-1.5 sand font-mono text-xs">
+            {% if s.isk_earned %}{{ '{:,.0f}'.format(s.isk_earned) }}{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="text-dune-muted text-sm">No sessions yet.</p>{% endif %}
+  </div>
+
+  <div class="card p-4">
+    <p class="label mb-3">Recent Losses</p>
+    {% if losses %}
+    <table class="w-full text-sm font-display">
+      <thead><tr class="border-b border-dune-border text-left">
+        <th class="pb-2 pr-3 label">Time</th>
+        <th class="pb-2 pr-3 label">Ship</th>
+        <th class="pb-2 label">System</th>
+      </tr></thead>
+      <tbody>
+        {% for loss in losses %}
+        <tr class="row border-b border-dune-border border-opacity-40">
+          <td class="py-1.5 pr-3 text-dune-muted font-mono text-xs">{{ loss.kill_time[:16].replace('T',' ') }}</td>
+          <td class="py-1.5 pr-3 spice font-mono text-xs">{{ loss.ship_type_id or '—' }}</td>
+          <td class="py-1.5 text-dune-muted font-mono text-xs">{{ loss.solar_system_id or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="text-dune-muted text-sm">No losses recorded.</p>{% endif %}
+  </div>
+
+</div>
+
+<!-- Snapshot history -->
+<div class="card p-4">
+  <p class="label mb-3">Snapshot History</p>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm font-display">
+      <thead><tr class="border-b border-dune-border text-left">
+        <th class="pb-2 pr-4 label">Time (UTC)</th>
+        <th class="pb-2 pr-4 label">Wallet</th>
+        <th class="pb-2 pr-4 label">ISK/hr</th>
+        <th class="pb-2 pr-4 label">Activity</th>
+        <th class="pb-2 pr-4 label">Risk</th>
+        <th class="pb-2 pr-4 label">System</th>
+        <th class="pb-2 label">Ship</th>
+      </tr></thead>
+      <tbody>
+        {% for s in snapshots[:48] %}
+        <tr class="row border-b border-dune-border border-opacity-30">
+          <td class="py-1.5 pr-4 text-dune-muted font-mono text-xs">{{ s.captured_at[:19].replace('T',' ') }}</td>
+          <td class="py-1.5 pr-4 font-mono text-xs">{% if s.wallet_balance is not none %}{{ '{:,.0f}'.format(s.wallet_balance) }}{% else %}—{% endif %}</td>
+          <td class="py-1.5 pr-4 sand font-mono text-xs">{% if s.isk_hour %}{{ '{:,.0f}'.format(s.isk_hour) }}{% else %}—{% endif %}</td>
+          <td class="py-1.5 pr-4 text-dune-muted text-xs">{{ s.activity_type or '—' }}</td>
+          <td class="py-1.5 pr-4 risk-{{ s.risk_level or '' }} text-xs font-600">{{ s.risk_level or '—' }}</td>
+          <td class="py-1.5 pr-4 text-xs">{{ s.system_name or '—' }}</td>
+          <td class="py-1.5 text-xs">{{ s.ship_name or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="py-6 text-center text-dune-muted">No snapshots yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CID    = {{ cid }};
+const SAND   = '#c8a96e', SPICE = '#d4742a', MUTED = '#6b7280';
+const BORDER = '#2a2d35', TEXT  = '#c9cdd6';
+const C1 = '#5a9e6f', C2 = '#4a7fa0', C3 = '#8a6eab', C4 = '#9e7040';
+
+Chart.defaults.color         = MUTED;
+Chart.defaults.borderColor   = BORDER;
+Chart.defaults.font.family   = 'Share Tech Mono';
+Chart.defaults.font.size     = 11;
+
+async function loadCharts() {
+  const snaps = await (await fetch(`/api/c/${CID}/history`)).json();
+  const labels   = snaps.map(s => s.captured_at.slice(5,16).replace('T',' '));
+  const wallet   = snaps.map(s => s.wallet_balance);
+  const iskHour  = snaps.map(s => s.isk_hour ?? 0);
+  const bounty   = snaps.reduce((a,s) => a+(s.isk_hour_bounty??0), 0);
+  const trade    = snaps.reduce((a,s) => a+(s.isk_hour_trade??0), 0);
+  const industry = snaps.reduce((a,s) => a+(s.isk_hour_industry??0), 0);
+  const other    = snaps.reduce((a,s) => a+(s.isk_hour_other??0), 0);
+
+  const baseOpts = { plugins:{ legend:{ display:false } },
+    scales:{ x:{ ticks:{ maxTicksLimit:8, color:MUTED }, grid:{ color:'rgba(42,45,53,0.8)' } },
+             y:{ ticks:{ callback:v=>(v/1e6).toFixed(0)+'M', color:MUTED }, grid:{ color:'rgba(42,45,53,0.8)' } } } };
+
+  new Chart(document.getElementById('walletChart'), { type:'line', data:{ labels,
+    datasets:[{ data:wallet, borderColor:SAND, backgroundColor:'rgba(200,169,110,0.06)',
+    borderWidth:1.5, pointRadius:snaps.length<30?2:0, fill:true, tension:0.4 }]}, options:baseOpts });
+
+  new Chart(document.getElementById('iskHourChart'), { type:'bar', data:{ labels,
+    datasets:[{ data:iskHour, backgroundColor:'rgba(200,169,110,0.5)', borderColor:SAND, borderWidth:0 }]},
+    options:baseOpts });
+
+  new Chart(document.getElementById('activityChart'), { type:'doughnut',
+    data:{ labels:['Combat','Trading','Industry','Other'],
+      datasets:[{ data:[bounty,trade,industry,other],
+        backgroundColor:[C1,C2,C3,C4], borderColor:'#1c1f24', borderWidth:2 }]},
+    options:{ plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, padding:12,
+      color:MUTED, font:{ size:10 } } } }, cutout:'68%' } });
+}
+
+async function loadFitting() {
+  const panel = document.getElementById('fittingPanel');
+  const lbl   = document.getElementById('fittingShipName');
+  try {
+    const data = await (await fetch(`/api/c/${CID}/fitting`)).json();
+    if (data.error) { panel.textContent = data.error; return; }
+    lbl.textContent = `${data.ship_name}  ·  ${data.ship_type}`;
+    const GROUPS = [
+      {key:'high', label:'HI', color:SPICE},{key:'mid', label:'MED', color:SAND},
+      {key:'low',  label:'LO', color:'#6b8fa8'},{key:'rig', label:'RIG', color:'#7a6a8a'},
+      {key:'drone',label:'DRONE',color:C1},{key:'cargo',label:'CARGO',color:MUTED},
+    ];
+    const hasMods = GROUPS.slice(0,4).some(g=>(data.slots[g.key]||[]).length>0);
+    if (!hasMods) { panel.innerHTML='<span class="text-dune-muted">No fitted modules.</span>'; return; }
+    let html='<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">';
+    for (const {key,label,color} of GROUPS) {
+      const items=data.slots[key]||[]; if (!items.length) continue;
+      html+=`<div><p class="label mb-2" style="color:${color};letter-spacing:0.2em">${label}</p><ul class="space-y-1.5">`;
+      for (const item of items) {
+        const qty=item.qty>1?`<span class="text-dune-muted ml-1 font-mono">×${item.qty}</span>`:'';
+        html+=`<li class="flex items-start gap-2">
+          <span class="mt-1.5 w-1 h-1 rounded-full flex-shrink-0" style="background:${color}"></span>
+          <span class="text-dune-text text-sm font-display leading-tight">${item.name}${qty}</span>
+        </li>`;
+      }
+      html+='</ul></div>';
+    }
+    panel.innerHTML=html+'</div>';
+  } catch(e) { panel.textContent='Failed to load fitting.'; }
+}
+
+async function triggerSync(cid) {
+  const btn=document.getElementById('syncBtn');
+  btn.textContent='Syncing…'; btn.disabled=true;
+  await fetch(`/api/c/${cid}/sync`,{method:'POST'});
+  const iv=setInterval(async()=>{
+    const s=await(await fetch(`/api/c/${cid}/status`)).json();
+    if(!s.running){clearInterval(iv);location.reload();}
+  },1500);
+}
+
+loadCharts();
+loadFitting();
+</script>
+{% endblock %}

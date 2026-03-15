@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Arrakis Tracker — EVE Online{% endblock %}
+
+{% block content %}
+
+<!-- Hero -->
+<div class="text-center py-16 mb-10">
+  <p class="label mb-4 tracking-[0.3em]">New Eden Intelligence</p>
+  <h1 class="font-display font-700 text-5xl md:text-6xl sand tracking-[0.15em] uppercase mb-4">Arrakis Tracker</h1>
+  <p class="text-dune-muted text-lg font-display mb-8 tracking-wide">ISK · Risk · Sessions · Losses · Across New Eden</p>
+  <a href="/auth/start" class="btn-sand inline-block px-10 py-3 rounded-sm text-lg font-display tracking-[0.1em]">
+    Connect Character
+  </a>
+</div>
+
+{% if characters %}
+<!-- Tracked Characters -->
+<div class="flex items-center gap-3 mb-4">
+  <span class="label">Tracked Pilots</span>
+  <span class="text-dune-muted text-xs font-mono">{{ characters|length }}</span>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-10">
+  {% for ch in characters %}
+  {% set snap = recent_snaps.get(ch.character_id, {}) %}
+  <a href="/c/{{ ch.character_id }}" class="card p-4 flex items-center gap-4 hover:border-dune-sand transition-colors duration-150">
+    <img src="https://images.evetech.net/characters/{{ ch.character_id }}/portrait?size=64"
+         class="w-14 h-14 rounded-sm border border-dune-border flex-shrink-0 grayscale hover:grayscale-0 transition" />
+    <div class="min-w-0 flex-1">
+      <p class="font-display font-600 text-dune-bright text-lg truncate tracking-wide">{{ ch.character_name }}</p>
+      <p class="text-dune-muted text-xs font-mono truncate">
+        {% if snap.system_name %}{{ snap.system_name }}{% endif %}
+        {% if snap.security_status is not none %}
+          <span class="{% if snap.security_status >= 0.45 %}sec-high{% elif snap.security_status >= 0.05 %}sec-low{% else %}sec-null{% endif %}">
+            {{ '%.1f'|format(snap.security_status) }}
+          </span>
+        {% endif %}
+      </p>
+      <div class="flex items-center gap-3 mt-1.5">
+        {% if snap.wallet_balance is not none %}
+        <span class="font-mono text-xs text-dune-text">{{ '{:,.0f}'.format(snap.wallet_balance) }}</span>
+        {% endif %}
+        {% if snap.isk_hour %}
+        <span class="font-mono text-xs sand">{{ '{:,.0f}'.format(snap.isk_hour) }}/hr</span>
+        {% endif %}
+        {% if snap.risk_level %}
+        <span class="text-xs risk-{{ snap.risk_level }} font-display font-600 tracking-widest">{{ snap.risk_level }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Recent Losses -->
+{% if recent_losses %}
+<div class="flex items-center gap-3 mb-4">
+  <span class="label">Recent Losses</span>
+</div>
+<div class="card overflow-hidden">
+  <table class="w-full text-sm font-display">
+    <thead>
+      <tr class="border-b border-dune-border" style="background:#16181c">
+        <th class="px-4 py-2.5 text-left label">Pilot</th>
+        <th class="px-4 py-2.5 text-left label">Ship</th>
+        <th class="px-4 py-2.5 text-left label">System</th>
+        <th class="px-4 py-2.5 text-left label">Time</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for loss in recent_losses %}
+      <tr class="row border-b border-dune-border border-opacity-50">
+        <td class="px-4 py-2">
+          <a href="/c/{{ loss.character_id }}" class="text-dune-text hover:sand transition-colors">
+            {{ loss.character_name or loss.character_id }}
+          </a>
+        </td>
+        <td class="px-4 py-2 spice font-mono text-xs">{{ loss.ship_type_id or '—' }}</td>
+        <td class="px-4 py-2 text-dune-muted font-mono text-xs">{{ loss.solar_system_id or '—' }}</td>
+        <td class="px-4 py-2 text-dune-muted font-mono text-xs">{{ loss.kill_time[:16].replace('T',' ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if not characters %}
+<div class="text-center py-20">
+  <p class="text-dune-muted font-display text-lg tracking-wide">No pilots tracked yet.</p>
+  <p class="text-dune-muted text-sm mt-1">The desert is empty. Connect a character to begin.</p>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -82,6 +82,26 @@ class SnapshotStore:
                 solar_system_id INTEGER
             );
 
+            CREATE TABLE IF NOT EXISTS character_tokens (
+                character_id    INTEGER PRIMARY KEY,
+                character_name  TEXT NOT NULL,
+                access_token    TEXT NOT NULL,
+                refresh_token   TEXT NOT NULL,
+                expires_at      REAL NOT NULL,
+                registered_at   TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS characters (
+                character_id    INTEGER PRIMARY KEY,
+                character_name  TEXT NOT NULL,
+                corporation_id  INTEGER,
+                alliance_id     INTEGER,
+                security_status REAL,
+                portrait_url    TEXT,
+                added_at        TEXT NOT NULL,
+                last_synced_at  TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS skills (
                 character_id  INTEGER NOT NULL,
                 skill_id      INTEGER NOT NULL,
@@ -227,6 +247,73 @@ class SnapshotStore:
             (character_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # --- Tokens ---
+
+    def save_token(self, character_id: int, character_name: str, token: dict):
+        now = _utcnow()
+        self.conn.execute(
+            """INSERT OR REPLACE INTO character_tokens
+               (character_id, character_name, access_token, refresh_token, expires_at, registered_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (character_id, character_name, token["access_token"],
+             token["refresh_token"], token.get("expires_at", 0), now),
+        )
+        self.conn.execute(
+            """INSERT OR IGNORE INTO characters
+               (character_id, character_name, added_at)
+               VALUES (?, ?, ?)""",
+            (character_id, character_name, now),
+        )
+        self.conn.commit()
+
+    def update_token(self, character_id: int, token: dict) -> dict:
+        self.conn.execute(
+            """UPDATE character_tokens
+               SET access_token=?, refresh_token=?, expires_at=?
+               WHERE character_id=?""",
+            (token["access_token"], token["refresh_token"],
+             token.get("expires_at", 0), character_id),
+        )
+        self.conn.commit()
+        return token
+
+    def get_token(self, character_id: int) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM character_tokens WHERE character_id=?", (character_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_all_character_ids(self) -> list[int]:
+        rows = self.conn.execute("SELECT character_id FROM character_tokens").fetchall()
+        return [r[0] for r in rows]
+
+    def upsert_character(self, character_id: int, info: dict):
+        self.conn.execute(
+            """INSERT OR REPLACE INTO characters
+               (character_id, character_name, corporation_id, alliance_id,
+                security_status, portrait_url, added_at, last_synced_at)
+               VALUES (?, ?, ?, ?, ?, ?, COALESCE(
+                   (SELECT added_at FROM characters WHERE character_id=?), ?
+               ), ?)""",
+            (character_id, info.get("name"), info.get("corporation_id"),
+             info.get("alliance_id"), info.get("security_status"),
+             f"https://images.evetech.net/characters/{character_id}/portrait?size=128",
+             character_id, _utcnow(), _utcnow()),
+        )
+        self.conn.commit()
+
+    def get_all_characters(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM characters ORDER BY last_synced_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_character(self, character_id: int) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM characters WHERE character_id=?", (character_id,)
+        ).fetchone()
+        return dict(row) if row else None
 
     # --- Sessions ---
 

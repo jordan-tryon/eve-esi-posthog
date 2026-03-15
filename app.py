@@ -1,10 +1,9 @@
-"""Combined web server + hourly scheduler entry point."""
+"""EVE Character Tracker — public multi-character web app."""
 
 import os
-import threading
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 
 import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -22,72 +21,76 @@ from src.eve_client.esi import ESIClient
 from src.eve_client.hourly_pipeline import run_hourly_snapshot
 from src.eve_client.store import SnapshotStore
 
-# ── Globals ──────────────────────────────────────────────────────────────────
+# ── Globals ───────────────────────────────────────────────────────────────────
 
-CHARACTER_ID = int(os.environ["EVE_CHARACTER_ID"])
+store = SnapshotStore("eve_snapshots.db")
 
 auth = EveAuth(
     client_id=os.environ["EVE_CLIENT_ID"],
     client_secret=os.environ["EVE_CLIENT_SECRET"],
     callback_url=os.environ["EVE_CALLBACK_URL"],
+    store=store,
 )
 analytics = Analytics(
     api_key=os.environ["POSTHOG_API_KEY"],
     host=os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com"),
 )
-store = SnapshotStore("eve_snapshots.db")
-scheduler = BackgroundScheduler()
-_sync_lock = threading.Lock()
-_sync_status: dict = {"running": False, "last": None, "error": None}
 
-# ── Scheduler ────────────────────────────────────────────────────────────────
+scheduler  = BackgroundScheduler()
+_sync_jobs: dict[int, dict] = {}   # character_id → {running, last, error}
 
-def _scheduled_sync():
-    if not auth._token:
-        print("[scheduler] No token — skipping sync.")
+
+# ── Scheduler helpers ─────────────────────────────────────────────────────────
+
+def _make_sync_fn(character_id: int):
+    def _sync():
+        _sync_jobs.setdefault(character_id, {})["running"] = True
+        _sync_jobs[character_id]["error"] = None
+        try:
+            run_hourly_snapshot(character_id, auth, analytics, store)
+            _sync_jobs[character_id]["last"] = datetime.now(timezone.utc).isoformat()
+        except Exception as e:
+            _sync_jobs[character_id]["error"] = str(e)
+            print(f"[scheduler] Error syncing {character_id}: {e}")
+        finally:
+            _sync_jobs[character_id]["running"] = False
+    return _sync
+
+
+def register_character_job(character_id: int, run_now: bool = True):
+    job_id = f"sync_{character_id}"
+    if scheduler.get_job(job_id):
         return
-    with _sync_lock:
-        _sync_status["running"] = True
-        _sync_status["error"] = None
-    try:
-        run_hourly_snapshot(CHARACTER_ID, auth, analytics, store)
-        _sync_status["last"] = datetime.now(timezone.utc).isoformat()
-    except Exception as e:
-        _sync_status["error"] = str(e)
-        print(f"[scheduler] Error: {e}")
-    finally:
-        _sync_status["running"] = False
+    scheduler.add_job(
+        _make_sync_fn(character_id),
+        trigger=IntervalTrigger(hours=1),
+        id=job_id,
+        next_run_time=datetime.now(timezone.utc) if run_now else None,
+    )
+    _sync_jobs[character_id] = {"running": False, "last": None, "error": None}
+    print(f"[scheduler] Registered job for character {character_id}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if auth._token:
-        scheduler.add_job(
-            _scheduled_sync,
-            trigger=IntervalTrigger(hours=1),
-            id="hourly_sync",
-            next_run_time=datetime.now(timezone.utc),
-        )
+    # Schedule all already-registered characters
+    for cid in store.get_all_character_ids():
+        register_character_job(cid, run_now=True)
+
+    if not scheduler.running:
         scheduler.start()
-        print("[app] Scheduler started — first sync running now.")
-    else:
-        print("[app] No EVE token found. Visit http://localhost:8000/auth/start to authenticate.")
+    print(f"[app] Scheduler started with {len(store.get_all_character_ids())} character(s).")
     yield
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
+    scheduler.shutdown(wait=False)
 
 
 # ── FastAPI ───────────────────────────────────────────────────────────────────
 
-app = FastAPI(lifespan=lifespan)
+app       = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 
 
-def _is_authed() -> bool:
-    return auth._token is not None
-
-
-# ── Auth routes ───────────────────────────────────────────────────────────────
+# ── Auth ──────────────────────────────────────────────────────────────────────
 
 @app.get("/auth/start")
 def auth_start():
@@ -96,96 +99,125 @@ def auth_start():
 
 @app.get("/auth/callback")
 def auth_callback(code: str):
-    auth.exchange_code(code)
-    # Start scheduler now that we have a token
+    character_id = auth.exchange_code(code)
     if not scheduler.running:
-        scheduler.add_job(
-            _scheduled_sync,
-            trigger=IntervalTrigger(hours=1),
-            id="hourly_sync",
-            next_run_time=datetime.now(timezone.utc),
-        )
         scheduler.start()
-    return RedirectResponse("/")
+    register_character_job(character_id, run_now=True)
+    return RedirectResponse(f"/c/{character_id}")
 
 
-# ── Page routes ───────────────────────────────────────────────────────────────
+# ── Public pages ──────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request):
-    if not _is_authed():
-        return templates.TemplateResponse("auth.html", {"request": request})
-    current = store.get_last_snapshot(CHARACTER_ID) or {}
-    snapshots = store.get_snapshots(CHARACTER_ID, limit=168)
-    return templates.TemplateResponse("dashboard.html", {
+def landing(request: Request):
+    characters  = store.get_all_characters()
+    recent_snaps = []
+    recent_losses = []
+
+    for ch in characters:
+        snap = store.get_last_snapshot(ch["character_id"])
+        if snap:
+            recent_snaps.append(snap)
+
+    # Recent losses across all characters
+    rows = store.conn.execute(
+        """SELECT k.*, c.character_name
+           FROM killmails k
+           LEFT JOIN characters c ON k.character_id = c.character_id
+           WHERE k.is_loss = 1
+           ORDER BY k.kill_time DESC LIMIT 20"""
+    ).fetchall()
+    recent_losses = [dict(r) for r in rows]
+
+    return templates.TemplateResponse("landing.html", {
         "request": request,
-        "current": current,
-        "snapshots": snapshots,
-        "character_id": CHARACTER_ID,
-        "sync_status": _sync_status,
+        "characters": characters,
+        "recent_snaps": {s["character_id"]: s for s in recent_snaps},
+        "recent_losses": recent_losses,
     })
 
 
-@app.get("/skills", response_class=HTMLResponse)
-def skills_page(request: Request):
-    if not _is_authed():
-        return RedirectResponse("/auth/start")
-    current = store.get_last_snapshot(CHARACTER_ID) or {}
-    skill_rows = store.get_skills(CHARACTER_ID)
+@app.get("/c/{character_id}", response_class=HTMLResponse)
+def character_page(request: Request, character_id: int):
+    character = store.get_character(character_id)
+    if not character:
+        return HTMLResponse("<h2>Character not tracked. <a href='/auth/start'>Add yours?</a></h2>", status_code=404)
+    current   = store.get_last_snapshot(character_id) or {}
+    snapshots = store.get_snapshots(character_id, limit=168)
+    sessions  = store.conn.execute(
+        "SELECT * FROM sessions WHERE character_id=? ORDER BY started_at DESC LIMIT 20",
+        (character_id,)
+    ).fetchall()
+    losses = store.conn.execute(
+        "SELECT * FROM killmails WHERE character_id=? AND is_loss=1 ORDER BY kill_time DESC LIMIT 20",
+        (character_id,)
+    ).fetchall()
+    status = _sync_jobs.get(character_id, {})
+    return templates.TemplateResponse("character.html", {
+        "request":     request,
+        "character":   character,
+        "current":     current,
+        "snapshots":   snapshots,
+        "sessions":    [dict(s) for s in sessions],
+        "losses":      [dict(l) for l in losses],
+        "sync_status": status,
+    })
+
+
+@app.get("/skills/{character_id}", response_class=HTMLResponse)
+def skills_page(request: Request, character_id: int):
+    character = store.get_character(character_id)
+    if not character:
+        return RedirectResponse("/")
+    current    = store.get_last_snapshot(character_id) or {}
+    skill_rows = store.get_skills(character_id)
     return templates.TemplateResponse("skills.html", {
-        "request": request,
-        "current": current,
-        "skills": skill_rows,
-        "character_id": CHARACTER_ID,
+        "request":      request,
+        "current":      current,
+        "skills":       skill_rows,
+        "character_id": character_id,
+        "character":    character,
     })
 
 
-# ── API routes ────────────────────────────────────────────────────────────────
+# ── API ───────────────────────────────────────────────────────────────────────
 
-@app.get("/api/current")
-def api_current():
-    return store.get_last_snapshot(CHARACTER_ID) or {}
-
-
-@app.get("/api/history")
-def api_history(hours: int = 168):
-    snapshots = store.get_snapshots(CHARACTER_ID, limit=hours)
-    snapshots.reverse()  # chronological for charts
-    return snapshots
+@app.get("/api/characters")
+def api_characters():
+    chars  = store.get_all_characters()
+    result = []
+    for ch in chars:
+        snap = store.get_last_snapshot(ch["character_id"])
+        result.append({**ch, "latest_snapshot": snap})
+    return result
 
 
-@app.post("/api/sync")
-def api_sync(background_tasks: BackgroundTasks):
-    if not _is_authed():
-        return JSONResponse({"error": "not authenticated"}, status_code=401)
-    if _sync_status["running"]:
-        return JSONResponse({"status": "already_running"})
-    background_tasks.add_task(_scheduled_sync)
-    return JSONResponse({"status": "started"})
+@app.get("/api/c/{character_id}/current")
+def api_current(character_id: int):
+    return store.get_last_snapshot(character_id) or {}
 
 
-@app.get("/api/status")
-def api_status():
-    return _sync_status
+@app.get("/api/c/{character_id}/history")
+def api_history(character_id: int, hours: int = 168):
+    snaps = store.get_snapshots(character_id, limit=hours)
+    snaps.reverse()
+    return snaps
 
 
-@app.get("/api/fitting")
-def api_fitting():
-    if not _is_authed():
-        return JSONResponse({"error": "not authenticated"}, status_code=401)
+@app.get("/api/c/{character_id}/fitting")
+def api_fitting(character_id: int):
+    token = auth.get_valid_token(character_id)
+    esi   = ESIClient(access_token=token)
     from collections import defaultdict
-    token = auth.get_valid_token()
-    esi = ESIClient(access_token=token)
 
-    ship = esi.get_ship(CHARACTER_ID)
-    ship_item_id = ship["ship_item_id"]
-    type_info = esi.get_type_info(ship["ship_type_id"])
-
-    all_assets = esi.get_assets_all(CHARACTER_ID)
-    fitted = [a for a in all_assets if a.get("location_id") == ship_item_id]
+    ship       = esi.get_ship(character_id)
+    ship_item  = ship["ship_item_id"]
+    type_info  = esi.get_type_info(ship["ship_type_id"])
+    all_assets = esi.get_assets_all(character_id)
+    fitted     = [a for a in all_assets if a.get("location_id") == ship_item]
 
     type_ids = list({a["type_id"] for a in fitted})
-    names = {
+    names    = {
         e["id"]: e["name"]
         for e in esi.get_universe_names(type_ids)
         if e.get("category") == "inventory_type"
@@ -199,25 +231,34 @@ def api_fitting():
         "drone": ["DroneBay"],
         "cargo": ["Cargo"],
     }
-
     slots = defaultdict(list)
     for item in fitted:
         flag = item.get("location_flag", "Other")
         name = names.get(item["type_id"], str(item["type_id"]))
-        qty  = item.get("quantity", 1)
         for group, flags in SLOT_GROUPS.items():
             if flag in flags:
-                slots[group].append({"name": name, "qty": qty, "flag": flag})
+                slots[group].append({"name": name, "qty": item.get("quantity", 1), "flag": flag})
                 break
         else:
-            slots["other"].append({"name": name, "qty": qty, "flag": flag})
+            slots["other"].append({"name": name, "qty": item.get("quantity", 1), "flag": flag})
 
-    return {
-        "ship_name":    ship["ship_name"],
-        "ship_type":    type_info.get("name"),
-        "ship_type_id": ship["ship_type_id"],
-        "slots":        dict(slots),
-    }
+    return {"ship_name": ship["ship_name"], "ship_type": type_info.get("name"),
+            "ship_type_id": ship["ship_type_id"], "slots": dict(slots)}
+
+
+@app.post("/api/c/{character_id}/sync")
+def api_sync(character_id: int, background_tasks: BackgroundTasks):
+    if not store.get_token(character_id):
+        return JSONResponse({"error": "character not registered"}, status_code=404)
+    if _sync_jobs.get(character_id, {}).get("running"):
+        return JSONResponse({"status": "already_running"})
+    background_tasks.add_task(_make_sync_fn(character_id))
+    return JSONResponse({"status": "started"})
+
+
+@app.get("/api/c/{character_id}/status")
+def api_status(character_id: int):
+    return _sync_jobs.get(character_id, {"running": False, "last": None, "error": None})
 
 
 if __name__ == "__main__":

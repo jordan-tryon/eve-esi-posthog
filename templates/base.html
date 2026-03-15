@@ -3,101 +3,179 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}EVE Tracker{% endblock %}</title>
+  <title>{% block title %}Arrakis Tracker{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
           colors: {
-            eve: {
-              bg:      '#080c18',
-              surface: '#0d1526',
-              card:    '#111d35',
-              border:  '#1a2d50',
-              gold:    '#c8a84b',
-              gold2:   '#e8c96a',
-              text:    '#c8d8f0',
-              muted:   '#6a84a8',
+            dune: {
+              void:    '#0a0a0b',
+              deep:    '#111214',
+              surface: '#16181c',
+              card:    '#1c1f24',
+              border:  '#2a2d35',
+              rim:     '#3a3f4a',
+              sand:    '#c8a96e',
+              sand2:   '#e8c98a',
+              spice:   '#d4742a',
+              muted:   '#6b7280',
+              text:    '#c9cdd6',
+              bright:  '#e8eaf0',
             }
+          },
+          fontFamily: {
+            display: ['Rajdhani', 'sans-serif'],
+            mono:    ['Share Tech Mono', 'monospace'],
           }
         }
       }
     }
   </script>
   <style>
-    body { background-color: #080c18; color: #c8d8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
-    .card { background: #111d35; border: 1px solid #1a2d50; border-radius: 8px; }
-    .gold-text { color: #c8a84b; }
-    .sec-high  { color: #4ade80; }
-    .sec-low   { color: #facc15; }
-    .sec-null  { color: #f87171; }
-    .risk-LOW    { color: #4ade80; }
-    .risk-MEDIUM { color: #facc15; }
-    .risk-HIGH   { color: #f87171; }
-    .dot-filled  { color: #c8a84b; }
-    .dot-empty   { color: #1a2d50; }
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #080c18; }
-    ::-webkit-scrollbar-thumb { background: #1a2d50; border-radius: 3px; }
+    * { box-sizing: border-box; }
+
+    body {
+      background-color: #0a0a0b;
+      color: #c9cdd6;
+      font-family: 'Rajdhani', system-ui, sans-serif;
+      font-weight: 400;
+      letter-spacing: 0.01em;
+    }
+
+    /* Cards — gunmetal with hairline rim */
+    .card {
+      background: #1c1f24;
+      border: 1px solid #2a2d35;
+      border-radius: 4px;
+      position: relative;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 4px;
+      background: linear-gradient(135deg, rgba(200,169,110,0.04) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    /* Sand accent */
+    .sand     { color: #c8a96e; }
+    .spice    { color: #d4742a; }
+
+    /* Security status colors */
+    .sec-high  { color: #5a9e6f; }
+    .sec-low   { color: #b8883a; }
+    .sec-null  { color: #8a3f3f; }
+
+    /* Risk */
+    .risk-LOW    { color: #5a9e6f; }
+    .risk-MEDIUM { color: #b8883a; }
+    .risk-HIGH   { color: #9e4040; }
+
+    /* Nav */
+    nav {
+      background: #111214;
+      border-bottom: 1px solid #2a2d35;
+    }
+
+    /* Subtle grain texture overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.4;
+    }
+    main, nav { position: relative; z-index: 1; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #0a0a0b; }
+    ::-webkit-scrollbar-thumb { background: #2a2d35; border-radius: 2px; }
+
+    /* Dividers */
+    .rule { border-color: #2a2d35; }
+
+    /* Stat label */
+    .label {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #6b7280;
+      font-weight: 600;
+    }
+
+    /* Button */
+    .btn-sand {
+      border: 1px solid #c8a96e;
+      color: #c8a96e;
+      transition: background 0.15s, color 0.15s;
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+    }
+    .btn-sand:hover { background: #c8a96e; color: #0a0a0b; }
+    .btn-sand:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-ghost {
+      border: 1px solid #2a2d35;
+      color: #6b7280;
+      transition: border-color 0.15s, color 0.15s;
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 500;
+    }
+    .btn-ghost:hover { border-color: #c8a96e; color: #c8a96e; }
+
+    /* Metric value */
+    .metric-val {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.25rem;
+      color: #e8eaf0;
+    }
+
+    /* Online/offline badge */
+    .badge-online  { border-color: #5a9e6f; color: #5a9e6f; }
+    .badge-offline { border-color: #2a2d35; color: #6b7280; }
+
+    /* Table rows */
+    tr.row:hover { background: rgba(200,169,110,0.03); }
+
+    /* Sand glow on focus */
+    input:focus { outline: none; border-color: #c8a96e !important; }
   </style>
   {% block head %}{% endblock %}
 </head>
 <body class="min-h-screen">
 
-  <!-- Nav -->
-  <nav class="border-b border-eve-border px-6 py-3 flex items-center justify-between" style="background:#0d1526">
-    <div class="flex items-center gap-4">
-      <span class="gold-text font-bold text-lg tracking-widest uppercase">EVE Tracker</span>
-      {% if current %}
-      <span class="text-eve-muted text-sm">
-        {{ current.character_name or 'Unknown' }}
-      </span>
+  <nav class="px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-5">
+      <a href="/" class="flex items-center gap-2">
+        <span class="sand font-display font-700 text-xl tracking-[0.2em] uppercase">Arrakis</span>
+        <span class="text-dune-muted font-display text-sm tracking-[0.15em] uppercase font-300">Tracker</span>
+      </a>
+      {% if character is defined and character %}
+      <span class="text-dune-muted text-sm font-display">/ {{ character.character_name }}</span>
       {% endif %}
     </div>
-    <div class="flex items-center gap-3">
-      <a href="/" class="text-sm text-eve-muted hover:text-eve-text px-3 py-1 rounded hover:bg-eve-card transition">Dashboard</a>
-      <a href="/skills" class="text-sm text-eve-muted hover:text-eve-text px-3 py-1 rounded hover:bg-eve-card transition">Skills</a>
-      <button id="syncBtn" onclick="triggerSync()"
-        class="text-sm px-4 py-1.5 rounded border border-eve-gold gold-text hover:bg-eve-gold hover:text-eve-bg transition font-medium">
-        Sync Now
-      </button>
+    <div class="flex items-center gap-2">
+      <a href="/" class="btn-ghost text-sm px-3 py-1 rounded-sm">Home</a>
+      {% if character is defined and character %}
+      <a href="/skills/{{ character.character_id }}" class="btn-ghost text-sm px-3 py-1 rounded-sm">Skills</a>
+      {% endif %}
+      <a href="/auth/start" class="btn-sand text-sm px-4 py-1.5 rounded-sm">+ Track Character</a>
     </div>
   </nav>
 
-  <!-- Main -->
   <main class="max-w-7xl mx-auto px-6 py-6">
     {% block content %}{% endblock %}
   </main>
 
-  <script>
-    async function triggerSync() {
-      const btn = document.getElementById('syncBtn');
-      btn.textContent = 'Syncing…';
-      btn.disabled = true;
-      try {
-        await fetch('/api/sync', { method: 'POST' });
-        pollStatus();
-      } catch (e) {
-        btn.textContent = 'Error';
-        setTimeout(() => { btn.textContent = 'Sync Now'; btn.disabled = false; }, 2000);
-      }
-    }
-
-    function pollStatus() {
-      const btn = document.getElementById('syncBtn');
-      const interval = setInterval(async () => {
-        const r = await fetch('/api/status');
-        const s = await r.json();
-        if (!s.running) {
-          clearInterval(interval);
-          btn.textContent = 'Sync Now';
-          btn.disabled = false;
-          location.reload();
-        }
-      }, 1500);
-    }
-  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
