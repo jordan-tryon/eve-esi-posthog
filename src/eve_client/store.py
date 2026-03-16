@@ -129,6 +129,11 @@ class SnapshotStore:
         ]:
             if col not in existing:
                 self.conn.execute(f"ALTER TABLE snapshots ADD COLUMN {col} {typedef}")
+
+        skill_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(skills)").fetchall()}
+        if "group_name" not in skill_cols:
+            self.conn.execute("ALTER TABLE skills ADD COLUMN group_name TEXT")
+
         self.conn.commit()
 
     # --- Snapshots ---
@@ -246,7 +251,7 @@ class SnapshotStore:
 
     def get_skills(self, character_id: int) -> list[dict]:
         rows = self.conn.execute(
-            "SELECT * FROM skills WHERE character_id=? ORDER BY skill_name",
+            "SELECT * FROM skills WHERE character_id=? ORDER BY group_name, skill_name",
             (character_id,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -265,6 +270,15 @@ class SnapshotStore:
             self.conn.execute(
                 "UPDATE skills SET skill_name=? WHERE character_id=? AND skill_id=?",
                 (name, character_id, skill_id)
+            )
+        self.conn.commit()
+
+    def update_skill_groups(self, character_id: int, groups: dict):
+        """Update group_name for known skill_ids. groups = {skill_id: group_name}"""
+        for skill_id, group_name in groups.items():
+            self.conn.execute(
+                "UPDATE skills SET group_name=? WHERE character_id=? AND skill_id=?",
+                (group_name, character_id, skill_id)
             )
         self.conn.commit()
 

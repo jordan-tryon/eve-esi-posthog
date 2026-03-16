@@ -1,5 +1,6 @@
 """Hourly snapshot orchestration."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 from .analytics import Analytics
@@ -188,6 +189,34 @@ def run_hourly_snapshot(
             print(f"  [skills] Resolved {len(name_map)} skill names")
         except Exception as e:
             print(f"  [warn] Skill name resolution failed: {e}")
+
+    # Resolve and cache skill group names (only for named skills missing a group)
+    ungrouped = [r[0] for r in store.conn.execute(
+        "SELECT skill_id FROM skills WHERE character_id=? AND skill_name IS NOT NULL AND group_name IS NULL",
+        (character_id,)
+    ).fetchall()]
+    if ungrouped:
+        try:
+            def _fetch_skill_group(sid):
+                try:
+                    info = esi.get_type_info(sid)
+                    gid  = info.get("group_id")
+                    if gid:
+                        return sid, esi.get_group_info(gid).get("name", "")
+                except Exception:
+                    pass
+                return sid, None
+
+            group_map = {}
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                for sid, gname in pool.map(_fetch_skill_group, ungrouped[:500]):
+                    if gname:
+                        group_map[sid] = gname
+            if group_map:
+                store.update_skill_groups(character_id, group_map)
+                print(f"  [skills] Resolved {len(group_map)} skill groups")
+        except Exception as e:
+            print(f"  [warn] Skill group resolution failed: {e}")
 
     # --- Compute metrics ---
     # ISK/hr = wallet delta between current and previous snapshot / elapsed hours.

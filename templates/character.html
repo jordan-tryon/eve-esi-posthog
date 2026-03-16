@@ -329,25 +329,56 @@
 <!-- ══ SKILLS TAB ══ -->
 <div id="panel-skills" style="display:none">
   {% if skills %}
-  <div class="mb-4">
+
+  {% set skill_groups = [] %}
+  {% for s in skills %}
+    {% if s.group_name and s.group_name not in skill_groups %}
+      {% set _ = skill_groups.append(s.group_name) %}
+    {% endif %}
+  {% endfor %}
+
+  <!-- Search + group subtabs -->
+  <div class="mb-4 flex flex-wrap items-center gap-2">
     <input id="skillSearch" type="text" placeholder="Filter skills…"
-      class="w-full md:w-80 rounded-sm px-3 py-2 text-dune-text text-sm font-display placeholder-dune-muted transition border"
-      style="background:#1c1f24; border-color:#2a2d35;"
+      class="rounded-sm px-3 py-1.5 text-dune-text text-sm font-display placeholder-dune-muted border"
+      style="background:#1c1f24;border-color:#2a2d35;width:180px"
       oninput="filterSkills(this.value)" />
   </div>
+
+  <!-- Group subtab bar -->
+  <div class="flex flex-wrap gap-1 mb-4 pb-3 border-b border-dune-border overflow-x-auto">
+    <button id="sg-all" onclick="switchSkillGroup('all')"
+      class="skill-grp-btn flex-shrink-0 px-3 py-1 text-xs font-display font-600 rounded-sm border"
+      style="border-color:#c8a96e;color:#c8a96e">
+      All <span class="font-mono font-300">{{ skills|length }}</span>
+    </button>
+    {% for grp in skill_groups | sort %}
+    {% set grp_skills = skills | selectattr('group_name', 'equalto', grp) | list %}
+    <button onclick="switchSkillGroup('{{ grp }}')" data-group="{{ grp }}"
+      class="skill-grp-btn flex-shrink-0 px-3 py-1 text-xs font-display rounded-sm border"
+      style="border-color:#2a2d35;color:#6b7280">
+      {{ grp }} <span class="font-mono font-300">{{ grp_skills|length }}</span>
+    </button>
+    {% endfor %}
+  </div>
+
   <div class="card overflow-hidden">
     <table class="w-full text-sm" id="skillTable">
       <thead>
         <tr class="text-left border-b border-dune-border" style="background:#16181c">
           <th class="px-4 py-3 label cursor-pointer hover:sand transition-colors" onclick="sortSkills(0)">Skill</th>
-          <th class="px-4 py-3 label text-center cursor-pointer hover:sand transition-colors" onclick="sortSkills(1)">Level</th>
-          <th class="px-4 py-3 label text-right cursor-pointer hover:sand transition-colors" onclick="sortSkills(2)">SP</th>
+          <th class="px-4 py-3 label text-xs hidden md:table-cell" style="color:#444">Group</th>
+          <th class="px-4 py-3 label text-center cursor-pointer hover:sand transition-colors" onclick="sortSkills(2)">Level</th>
+          <th class="px-4 py-3 label text-right cursor-pointer hover:sand transition-colors" onclick="sortSkills(3)">SP</th>
         </tr>
       </thead>
       <tbody id="skillBody">
         {% for s in skills %}
-        <tr class="row border-b border-dune-border border-opacity-30 skill-row" data-name="{{ s.skill_name | lower }}">
+        <tr class="row border-b border-dune-border border-opacity-30 skill-row"
+          data-name="{{ (s.skill_name or '') | lower }}"
+          data-group="{{ s.group_name or '' }}">
           <td class="px-4 py-2 font-display text-dune-text">{{ s.skill_name or s.skill_id }}</td>
+          <td class="px-4 py-2 text-xs text-dune-muted hidden md:table-cell">{{ s.group_name or '—' }}</td>
           <td class="px-4 py-2 text-center">
             <span class="inline-flex gap-0.5">
               {% for i in range(5) %}
@@ -739,12 +770,27 @@ function switchTab(name) {
   if (name === 'ships')   { loadShips(); }
 }
 
+let _activeSkillGroup = 'all';
+
+function switchSkillGroup(grp) {
+  _activeSkillGroup = grp;
+  document.querySelectorAll('.skill-grp-btn').forEach(b => {
+    const active = grp === 'all' ? b.id === 'sg-all' : b.dataset.group === grp;
+    b.style.borderColor = active ? '#c8a96e' : '#2a2d35';
+    b.style.color       = active ? '#c8a96e' : '#6b7280';
+  });
+  filterSkills(document.getElementById('skillSearch')?.value || '');
+}
+
 function filterSkills(q) {
   q = q.toLowerCase();
   document.querySelectorAll('.skill-row').forEach(r => {
-    r.style.display = r.dataset.name.includes(q) ? '' : 'none';
+    const nameOk  = r.dataset.name.includes(q);
+    const groupOk = _activeSkillGroup === 'all' || r.dataset.group === _activeSkillGroup;
+    r.style.display = (nameOk && groupOk) ? '' : 'none';
   });
 }
+
 let _skillSortDir = {};
 function sortSkills(col) {
   const tbody = document.getElementById('skillBody');
