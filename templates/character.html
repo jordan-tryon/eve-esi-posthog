@@ -90,14 +90,104 @@
         {% endif %}
       </div>
 
-      <div class="card p-3">
-        <p class="label mb-1.5">Risk</p>
+      {# ── Risk tooltip factors ── #}
+      {% set _CAPS = [485, 547, 659, 30, 1538, 883] %}
+
+      {# Base level + location label from security status #}
+      {% if c.security_status is none %}
+        {% set _sec_label = "Unknown location" %}
+        {% set _sec_cls   = "text-dune-muted" %}
+        {% set _base      = "HIGH" %}
+      {% elif c.security_status >= 0.45 %}
+        {% set _sec_label = "Highsec (" ~ '%.2f'|format(c.security_status) ~ ")" %}
+        {% set _sec_cls   = "sec-high" %}
+        {% set _base      = "LOW" %}
+      {% elif c.security_status >= 0.05 %}
+        {% set _sec_label = "Lowsec (" ~ '%.2f'|format(c.security_status) ~ ")" %}
+        {% set _sec_cls   = "sec-low" %}
+        {% set _base      = "MEDIUM" %}
+      {% else %}
+        {% set _sec_label = "Null / WH (" ~ '%.2f'|format(c.security_status) ~ ")" %}
+        {% set _sec_cls   = "sec-null" %}
+        {% set _base      = "HIGH" %}
+      {% endif %}
+
+      {% set _is_capital  = c.ship_group_id in _CAPS %}
+      {% set _high_losses = c.recent_losses is not none and c.recent_losses >= 2 %}
+      {% set _escalated   = _is_capital or _high_losses %}
+
+      <div class="card p-3 group" style="overflow:visible">
+        <p class="label mb-1.5">
+          Risk <span class="text-dune-muted" style="font-size:0.6rem;vertical-align:middle">ⓘ</span>
+        </p>
         <p class="font-display font-700 text-sm risk-{{ c.risk_level or 'LOW' }}">{{ c.risk_level or '—' }}</p>
         {% if c.recent_losses %}
         <p class="text-xs spice mt-0.5 font-display">{{ c.recent_losses }} loss / 24h</p>
         {% else %}
         <p class="text-xs text-dune-muted mt-0.5 font-mono">no losses</p>
         {% endif %}
+
+        <!-- Tooltip — anchored to right edge so it doesn't clip viewport -->
+        <div class="absolute right-0 top-full mt-1.5 z-50 w-52
+                    opacity-0 group-hover:opacity-100 pointer-events-none
+                    transition-opacity duration-150 rounded-sm border border-dune-border"
+             style="background:#111214;min-width:200px">
+
+          <!-- Arrow nub -->
+          <div class="absolute -top-1.5 right-3 w-2.5 h-2.5 rotate-45 border-l border-t border-dune-border"
+               style="background:#111214"></div>
+
+          <div class="p-3 text-xs">
+            <p class="label mb-2.5">Risk Factors</p>
+
+            <!-- Location / security -->
+            <div class="flex items-start justify-between gap-3 mb-2">
+              <div class="min-w-0">
+                <p class="text-dune-muted font-display mb-0.5">Location</p>
+                <p class="font-mono {{ _sec_cls }}">{{ _sec_label }}</p>
+              </div>
+              <span class="font-mono font-700 flex-shrink-0 risk-{{ _base }}">{{ _base }}</span>
+            </div>
+
+            <!-- Capital ship -->
+            <div class="flex items-start justify-between gap-3 mb-2">
+              <div class="min-w-0">
+                <p class="text-dune-muted font-display mb-0.5">Ship class</p>
+                <p class="font-mono {% if _is_capital %}spice{% else %}text-dune-muted{% endif %}">
+                  {% if _is_capital %}Capital — HIGH forced{% else %}{{ c.ship_name or 'Subcap' }}{% endif %}
+                </p>
+              </div>
+              {% if _is_capital %}
+              <span class="font-mono font-700 flex-shrink-0 spice">→ HIGH</span>
+              {% else %}
+              <span class="font-mono text-dune-muted flex-shrink-0">—</span>
+              {% endif %}
+            </div>
+
+            <!-- Recent losses -->
+            <div class="flex items-start justify-between gap-3 mb-2.5">
+              <div class="min-w-0">
+                <p class="text-dune-muted font-display mb-0.5">Recent losses</p>
+                <p class="font-mono {% if _high_losses %}spice{% else %}text-dune-muted{% endif %}">
+                  {{ c.recent_losses or 0 }} in last 24h
+                </p>
+              </div>
+              {% if _high_losses %}
+              <span class="font-mono font-700 flex-shrink-0 spice">escalated</span>
+              {% else %}
+              <span class="font-mono text-dune-muted flex-shrink-0">—</span>
+              {% endif %}
+            </div>
+
+            <!-- Result -->
+            <div class="border-t border-dune-border pt-2 flex items-center justify-between">
+              <p class="text-dune-muted font-display">
+                {% if _escalated %}Base {{ _base }} → escalated{% else %}No escalation{% endif %}
+              </p>
+              <span class="font-mono font-700 risk-{{ c.risk_level or 'LOW' }}">{{ c.risk_level or '—' }}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
     </div>
