@@ -277,6 +277,13 @@
 </div>
 
 <!-- ── Charts — wallet + ISK/hr stacked left, activity doughnut right ── -->
+<div class="card p-3 mb-3 flex items-center gap-2 flex-wrap">
+  <span class="label mr-1">Range</span>
+  <button data-range="day"   onclick="setRange('day')"   class="chart-range-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Day</button>
+  <button data-range="week"  onclick="setRange('week')"  class="chart-range-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Week</button>
+  <button data-range="month" onclick="setRange('month')" class="chart-range-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Month</button>
+  <button data-range="year"  onclick="setRange('year')"  class="chart-range-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Year</button>
+</div>
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-6">
   <div class="lg:col-span-2 flex flex-col gap-3">
     <div class="card p-4">
@@ -284,12 +291,13 @@
       <canvas id="walletChart" height="90"></canvas>
     </div>
     <div class="card p-4">
-      <p class="label mb-3">ISK / Hour</p>
+      <p id="iskHourLabel" class="label mb-3">ISK / Hour</p>
       <canvas id="iskHourChart" height="60"></canvas>
     </div>
   </div>
   <div class="card p-4 flex flex-col">
-    <p class="label mb-3">ISK Sources</p>
+    <p class="label mb-1">ISK Sources</p>
+    <p class="font-mono text-dune-muted mb-3" style="font-size:0.6rem">click segment to drill down</p>
     <div class="flex-1 flex items-center justify-center" style="min-height:180px;position:relative">
       <canvas id="activityChart"></canvas>
     </div>
@@ -525,34 +533,96 @@ function switchActivity(name) {
   });
 }
 
+const RANGES = {
+  day:   { days:1,   gran:'hour',  fmtLabel: s => s.captured_at.slice(11,16) },
+  week:  { days:7,   gran:'day',   fmtLabel: s => s.captured_at.slice(5,10).replace('-','/') },
+  month: { days:30,  gran:'day',   fmtLabel: s => s.captured_at.slice(5,10).replace('-','/') },
+  year:  { days:365, gran:'month', fmtLabel: s => {
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return MONTHS[parseInt(s.captured_at.slice(5,7))-1] + ' \'' + s.captured_at.slice(2,4);
+  }},
+};
+
+const SOURCES = [
+  { key:'bounty',   label:'Combat',   color:C1 },
+  { key:'trade',    label:'Trading',  color:C2 },
+  { key:'industry', label:'Industry', color:C3 },
+  { key:'other',    label:'Other',    color:C4 },
+];
+
+let currentRange  = 'week';
+let activeSource  = null;
+let currentSnaps  = [];
+let walletInst, iskHourInst, activityInst;
+
+function updateIskDrilldown() {
+  if (!iskHourInst) return;
+  const src   = SOURCES.find(s => s.key === activeSource);
+  const field = src ? `isk_hour_${src.key}` : 'isk_hour';
+  iskHourInst.data.datasets[0].data            = currentSnaps.map(s => s[field] ?? 0);
+  iskHourInst.data.datasets[0].backgroundColor = src ? src.color + '80' : 'rgba(200,169,110,0.5)';
+  iskHourInst.data.datasets[0].borderColor     = src ? src.color : SAND;
+  iskHourInst.update();
+  document.getElementById('iskHourLabel').textContent = src ? `ISK / Hour — ${src.label}` : 'ISK / Hour';
+  // Dim unselected doughnut segments
+  activityInst.data.datasets[0].backgroundColor = SOURCES.map(s =>
+    activeSource === null || s.key === activeSource ? s.color : s.color + '30'
+  );
+  activityInst.update();
+}
+
 async function loadCharts() {
-  const snaps = await (await fetch(`/api/c/${CID}/history`)).json();
-  const labels   = snaps.map(s => s.captured_at.slice(5,16).replace('T',' '));
-  const wallet   = snaps.map(s => s.wallet_balance);
-  const iskHour  = snaps.map(s => s.isk_hour ?? 0);
-  const bounty   = snaps.reduce((a,s) => a+(s.isk_hour_bounty??0), 0);
-  const trade    = snaps.reduce((a,s) => a+(s.isk_hour_trade??0), 0);
-  const industry = snaps.reduce((a,s) => a+(s.isk_hour_industry??0), 0);
-  const other    = snaps.reduce((a,s) => a+(s.isk_hour_other??0), 0);
+  const { days, gran, fmtLabel } = RANGES[currentRange];
+  const snaps = await (await fetch(`/api/c/${CID}/history?days=${days}&granularity=${gran}`)).json();
+  currentSnaps = snaps;
+  const labels = snaps.map(fmtLabel);
 
   const baseOpts = { plugins:{ legend:{ display:false } },
     scales:{ x:{ ticks:{ maxTicksLimit:8, color:MUTED }, grid:{ color:'rgba(42,45,53,0.8)' } },
              y:{ ticks:{ callback:v=>(v/1e6).toFixed(0)+'M', color:MUTED }, grid:{ color:'rgba(42,45,53,0.8)' } } } };
 
-  new Chart(document.getElementById('walletChart'), { type:'line', data:{ labels,
-    datasets:[{ data:wallet, borderColor:SAND, backgroundColor:'rgba(200,169,110,0.06)',
-    borderWidth:1.5, pointRadius:snaps.length<30?2:0, fill:true, tension:0.4 }]}, options:baseOpts });
+  walletInst?.destroy();
+  iskHourInst?.destroy();
+  activityInst?.destroy();
 
-  new Chart(document.getElementById('iskHourChart'), { type:'bar', data:{ labels,
-    datasets:[{ data:iskHour, backgroundColor:'rgba(200,169,110,0.5)', borderColor:SAND, borderWidth:0 }]},
-    options:baseOpts });
+  walletInst = new Chart(document.getElementById('walletChart'), { type:'line', data:{ labels,
+    datasets:[{ data:snaps.map(s => s.wallet_balance), borderColor:SAND,
+      backgroundColor:'rgba(200,169,110,0.06)', borderWidth:1.5,
+      pointRadius:snaps.length<30?2:0, fill:true, tension:0.4 }]}, options:baseOpts });
 
-  new Chart(document.getElementById('activityChart'), { type:'doughnut',
-    data:{ labels:['Combat','Trading','Industry','Other'],
-      datasets:[{ data:[bounty,trade,industry,other],
-        backgroundColor:[C1,C2,C3,C4], borderColor:'#1c1f24', borderWidth:2 }]},
-    options:{ maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, padding:12,
-      color:MUTED, font:{ size:10 } } } }, cutout:'68%' } });
+  const src = SOURCES.find(s => s.key === activeSource);
+  const iskField = src ? `isk_hour_${src.key}` : 'isk_hour';
+  iskHourInst = new Chart(document.getElementById('iskHourChart'), { type:'bar', data:{ labels,
+    datasets:[{ data:snaps.map(s => s[iskField] ?? 0),
+      backgroundColor: src ? src.color + '80' : 'rgba(200,169,110,0.5)',
+      borderColor: src ? src.color : SAND, borderWidth:0 }]}, options:baseOpts });
+
+  const totals = SOURCES.map(src => snaps.reduce((a,s) => a+(s[`isk_hour_${src.key}`]??0), 0));
+  activityInst = new Chart(document.getElementById('activityChart'), { type:'doughnut',
+    data:{ labels: SOURCES.map(s => s.label),
+      datasets:[{ data: totals,
+        backgroundColor: SOURCES.map(s => activeSource === null || s.key === activeSource ? s.color : s.color + '30'),
+        borderColor:'#1c1f24', borderWidth:2, hoverOffset:6 }]},
+    options:{ maintainAspectRatio:false, onClick:(e, els) => {
+        if (!els.length) return;
+        const clicked = SOURCES[els[0].index].key;
+        activeSource = activeSource === clicked ? null : clicked;
+        updateIskDrilldown();
+      },
+      plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, padding:12,
+        color:MUTED, font:{ size:10 } } } }, cutout:'68%' } });
+}
+
+function setRange(r) {
+  currentRange = r;
+  activeSource = null;
+  document.getElementById('iskHourLabel').textContent = 'ISK / Hour';
+  document.querySelectorAll('.chart-range-btn').forEach(b => {
+    const active = b.dataset.range === r;
+    b.style.borderColor = active ? '#c8a96e' : '';
+    b.style.color       = active ? '#c8a96e' : '';
+  });
+  loadCharts();
 }
 
 function fmt(n) {
@@ -928,7 +998,7 @@ async function triggerSync(cid) {
   }, 1500);
 }
 
-loadCharts();
+setRange('week');
 loadFitting();
 </script>
 {% endblock %}

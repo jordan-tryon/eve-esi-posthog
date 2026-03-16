@@ -161,6 +161,13 @@ class SnapshotStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_snapshots_since(self, character_id: int, since: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM snapshots WHERE character_id=? AND captured_at >= ? ORDER BY captured_at DESC",
+            (character_id, since),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     # --- Wallet journal ---
 
     def save_journal_entries(self, character_id: int, entries: list[dict]):

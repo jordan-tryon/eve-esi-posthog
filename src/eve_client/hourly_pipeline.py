@@ -219,11 +219,15 @@ def run_hourly_snapshot(
             print(f"  [warn] Skill group resolution failed: {e}")
 
     # --- Compute metrics ---
-    # ISK/hr = wallet delta between current and previous snapshot / elapsed hours.
-    # This captures real net ISK flow (earnings minus expenditures) without
-    # relying on journal parsing. Activity type still comes from journal.
+    # Total ISK/hr = wallet delta (real net flow). Category breakdown from journal.
     isk_rates     = None
     activity_type = "Unknown"
+
+    # Journal-based breakdown + activity (last 24h)
+    journal_24h    = store.get_journal_entries_between(character_id, since_24h, now)
+    journal_rates  = compute_isk_rates(journal_24h, since_24h, now) if journal_24h else None
+    if journal_24h:
+        activity_type = detect_activity_type(journal_24h, since_24h)
 
     if prev and prev.get("wallet_balance") is not None and wallet_balance is not None:
         prev_dt    = datetime.fromisoformat(prev["captured_at"])
@@ -233,16 +237,11 @@ def run_hourly_snapshot(
         isk_hr     = round(delta / elapsed_h, 2)
         isk_rates  = {
             "isk_hour":          isk_hr,
-            "isk_hour_bounty":   0.0,
-            "isk_hour_trade":    0.0,
-            "isk_hour_industry": 0.0,
-            "isk_hour_other":    isk_hr if isk_hr > 0 else 0.0,
+            "isk_hour_bounty":   journal_rates["isk_hour_bounty"]   if journal_rates else 0.0,
+            "isk_hour_trade":    journal_rates["isk_hour_trade"]     if journal_rates else 0.0,
+            "isk_hour_industry": journal_rates["isk_hour_industry"]  if journal_rates else 0.0,
+            "isk_hour_other":    journal_rates["isk_hour_other"]     if journal_rates else 0.0,
         }
-
-    # Activity type from journal (last 24h)
-    journal_24h = store.get_journal_entries_between(character_id, since_24h, now)
-    if journal_24h:
-        activity_type = detect_activity_type(journal_24h, since_24h)
 
     # --- Estimated total account value = wallet + assets at adjusted market price ---
     price_map = {p["type_id"]: p.get("adjusted_price", 0.0) for p in market_prices}

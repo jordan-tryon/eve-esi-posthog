@@ -213,11 +213,40 @@ def api_current(character_id: int):
     return store.get_last_snapshot(character_id) or {}
 
 
+def _aggregate_snaps(snaps: list[dict], granularity: str) -> list[dict]:
+    """Bucket hourly snapshots into day/month aggregates for the history API."""
+    def bucket(s: dict) -> str:
+        ts = s["captured_at"]
+        if granularity == "day":   return ts[:10]       # YYYY-MM-DD
+        if granularity == "month": return ts[:7]        # YYYY-MM
+        return ts[:16]
+
+    buckets: dict[str, list[dict]] = defaultdict(list)
+    for s in snaps:
+        buckets[bucket(s)].append(s)
+
+    RATE_FIELDS = ("isk_hour", "isk_hour_bounty", "isk_hour_trade",
+                   "isk_hour_industry", "isk_hour_other", "wealth_isk_hour")
+    result = []
+    for key in sorted(buckets):
+        group = buckets[key]
+        last  = group[-1]
+        def avg(f: str) -> float:
+            vals = [s.get(f) or 0 for s in group]
+            return round(sum(vals) / len(vals), 2)
+        result.append({**last, **{f: avg(f) for f in RATE_FIELDS}})
+    return result
+
+
 @app.get("/api/c/{character_id}/history")
-def api_history(character_id: int, hours: int = 168):
-    snaps = store.get_snapshots(character_id, limit=hours)
-    snaps.reverse()
-    return snaps
+def api_history(character_id: int, days: int = 7, granularity: str = "hour"):
+    from datetime import timedelta
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    snaps = store.get_snapshots_since(character_id, since)
+    snaps.reverse()  # oldest first
+    if granularity == "hour":
+        return snaps
+    return _aggregate_snaps(snaps, granularity)
 
 
 @app.get("/api/c/{character_id}/fitting")
