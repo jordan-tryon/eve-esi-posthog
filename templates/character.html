@@ -216,7 +216,14 @@
 
   <!-- FINANCES -->
   <div class="flex-1 min-w-0">
-    <p class="mb-2 font-mono text-xs tracking-widest" style="color:#3a3e46">FINANCES</p>
+    <div class="flex items-center gap-2 mb-2">
+      <p class="font-mono text-xs tracking-widest" style="color:#3a3e46">FINANCES</p>
+      <span id="filterPill" style="display:none"
+        class="text-xs font-mono px-2 py-0.5 rounded-sm border border-dune-border cursor-pointer text-dune-muted hover:text-dune-sand transition-colors"
+        onclick="activeSource=null; updateIskDrilldown();">
+        &#9656; <span id="filterPillLabel"></span> &times;
+      </span>
+    </div>
     <div class="grid grid-cols-3 gap-3">
 
       <div class="card p-3">
@@ -229,10 +236,10 @@
 
       <div class="card p-3">
         <p class="label mb-1.5">ISK / Hour</p>
-        <p class="font-mono font-600 text-sm sand">
+        <p id="statIskHourVal" class="font-mono font-600 text-sm sand">
           {% if c.isk_hour is not none %}{{ '{:,.0f}'.format(c.isk_hour / 1e3) }}K{% else %}—{% endif %}
         </p>
-        <p class="text-dune-muted text-xs font-display mt-0.5 truncate">{{ c.activity_type or '—' }}</p>
+        <p id="statIskHourSub" class="text-dune-muted text-xs font-display mt-0.5 truncate">{{ c.activity_type or '—' }}</p>
       </div>
 
       <div class="card p-3">
@@ -569,6 +576,28 @@ function updateIskDrilldown() {
     activeSource === null || s.key === activeSource ? s.color : s.color + '30'
   );
   activityInst.update();
+  // Update ISK/Hour stat card
+  const cardVal = document.getElementById('statIskHourVal');
+  const cardSub = document.getElementById('statIskHourSub');
+  if (cardVal && currentSnaps.length) {
+    if (src) {
+      const avg = currentSnaps.reduce((a, s) => a + (s[`isk_hour_${src.key}`] ?? 0), 0) / currentSnaps.length;
+      cardVal.textContent = (avg / 1e3).toFixed(0) + 'K';
+      cardSub.textContent = `${src.label} avg / range`;
+      cardSub.style.color = src.color;
+    } else {
+      const latest = currentSnaps.at(-1);
+      cardVal.textContent = latest.isk_hour != null ? (latest.isk_hour / 1e3).toFixed(0) + 'K' : '—';
+      cardSub.textContent = latest.activity_type || '—';
+      cardSub.style.color = '';
+    }
+  }
+  // Show/hide filter pill
+  const pill = document.getElementById('filterPill');
+  if (pill) {
+    pill.style.display = src ? 'inline' : 'none';
+    if (src) document.getElementById('filterPillLabel').textContent = src.label;
+  }
 }
 
 async function loadCharts() {
@@ -586,9 +615,12 @@ async function loadCharts() {
   activityInst?.destroy();
 
   walletInst = new Chart(document.getElementById('walletChart'), { type:'line', data:{ labels,
-    datasets:[{ data:snaps.map(s => s.wallet_balance), borderColor:SAND,
-      backgroundColor:'rgba(200,169,110,0.06)', borderWidth:1.5,
-      pointRadius:snaps.length<30?2:0, fill:true, tension:0.4 }]}, options:baseOpts });
+    datasets:[{ data:snaps.map(s => s.wallet_balance), borderWidth:1.5,
+      pointRadius:snaps.length<30?2:0, fill:true, tension:0.4,
+      segment:{
+        borderColor: ctx => ctx.p1.parsed.y > ctx.p0.parsed.y ? '#5a9e6f' : '#9e4040',
+        backgroundColor: ctx => ctx.p1.parsed.y > ctx.p0.parsed.y ? 'rgba(90,158,111,0.07)' : 'rgba(158,64,64,0.07)',
+      }}]}, options:baseOpts });
 
   const src = SOURCES.find(s => s.key === activeSource);
   const iskField = src ? `isk_hour_${src.key}` : 'isk_hour';

@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 
 BOUNTY_TYPES = {"bounty_prizes", "ess_escrow_transfer", "bounty_prize", "agent_mission_reward_bonus", "daily_goal_payouts"}
 MISSION_TYPES = {"agent_mission_reward", "agent_mission_time_bonus_reward"}
-TRADE_TYPES = {"market_transaction", "transaction_tax", "brokers_fee", "market_escrow"}
+TRADE_TYPES = {
+    "market_transaction", "transaction_tax", "brokers_fee", "market_escrow",
+    "contract_price", "contract_reward", "contract_price_payment_corp",
+}
 INDUSTRY_TYPES = {"industry_job_tax", "reprocessing_tax", "industry_job_completed"}
 
 # EVE ship group IDs for capitals
