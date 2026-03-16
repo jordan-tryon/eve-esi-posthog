@@ -91,6 +91,18 @@ app       = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 
 
+def _fmt_isk(val) -> str:
+    """Full integer with commas up to 1T; T suffix beyond that."""
+    if val is None:
+        return "—"
+    if val >= 1_000_000_000_000:
+        return f"{val / 1_000_000_000_000:,.2f}T"
+    return f"{val:,.0f}"
+
+
+templates.env.filters["fmt_isk"] = _fmt_isk
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 @app.get("/auth/start")

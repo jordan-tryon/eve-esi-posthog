@@ -112,8 +112,8 @@
 
       <div class="card p-3">
         <p class="label mb-1.5">Wallet</p>
-        <p class="font-mono font-600 text-dune-bright text-sm">
-          {% if c.wallet_balance is not none %}{{ '{:,.0f}'.format(c.wallet_balance / 1e6) }}M{% else %}—{% endif %}
+        <p class="font-mono font-600 text-dune-bright text-xs leading-snug mt-1">
+          {{ c.wallet_balance | fmt_isk if c.wallet_balance is not none else '—' }}
         </p>
         <p class="text-dune-muted text-xs font-mono mt-0.5">ISK</p>
       </div>
@@ -277,7 +277,7 @@
         {% for s in snapshots[:168] %}
         <tr class="row border-b border-dune-border border-opacity-20">
           <td class="py-1 pr-4 text-dune-muted font-mono text-xs whitespace-nowrap">{{ s.captured_at[:16].replace('T',' ') }}</td>
-          <td class="py-1 pr-4 font-mono text-xs text-right">{% if s.wallet_balance is not none %}{{ '{:,.0f}'.format(s.wallet_balance / 1e6) }}M{% else %}—{% endif %}</td>
+          <td class="py-1 pr-4 font-mono text-xs text-right">{{ s.wallet_balance | fmt_isk if s.wallet_balance is not none else '—' }}</td>
           <td class="py-1 pr-4 font-mono text-xs text-right {% if s.isk_hour and s.isk_hour > 0 %}sec-high{% elif s.isk_hour and s.isk_hour < 0 %}spice{% endif %}">
             {% if s.isk_hour %}{{ '{:+,.0f}'.format(s.isk_hour / 1e3) }}K{% else %}—{% endif %}</td>
           <td class="py-1 pr-4 font-mono text-xs text-right sand">{% if s.estimated_value %}{{ '{:,.2f}'.format(s.estimated_value / 1e9) }}B{% else %}—{% endif %}</td>
