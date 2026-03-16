@@ -60,6 +60,7 @@ def compute_risk_level(
     security_status: float | None,
     ship_group_id: int | None,
     recent_losses: int,
+    at_risk_value: float = 0.0,
 ) -> str:
     if security_status is None:
         level = "HIGH"
@@ -69,6 +70,11 @@ def compute_risk_level(
         level = "MEDIUM"
     else:
         level = "HIGH"
+
+    # Escalate for expensive fits in highsec (gank risk)
+    if security_status is not None and security_status >= 0.45:
+        if at_risk_value >= 60_000_000 and level == "LOW":
+            level = "MEDIUM"
 
     # Escalate for capitals or repeated losses
     if ship_group_id in CAPITAL_GROUP_IDS:

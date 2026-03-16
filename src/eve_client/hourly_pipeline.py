@@ -244,8 +244,6 @@ def run_hourly_snapshot(
     if journal_24h:
         activity_type = detect_activity_type(journal_24h, since_24h)
 
-    risk_level = compute_risk_level(security_status, ship_group_id, recent_losses)
-
     # --- Estimated total account value = wallet + assets at adjusted market price ---
     price_map = {p["type_id"]: p.get("adjusted_price", 0.0) for p in market_prices}
     asset_value = sum(
@@ -281,6 +279,8 @@ def run_hourly_snapshot(
                     at_risk_value += a.get("quantity", 1) * price_map.get(a["type_id"], 0.0)
         at_risk_value = round(at_risk_value, 2)
         print(f"  [risk] In space — at_risk_value={at_risk_value:,.0f}")
+
+    risk_level = compute_risk_level(security_status, ship_group_id, recent_losses, at_risk_value)
 
     # --- Build and save snapshot ---
     snap = {

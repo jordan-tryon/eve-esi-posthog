@@ -112,9 +112,13 @@
         {% set _base      = "HIGH" %}
       {% endif %}
 
-      {% set _is_capital  = c.ship_group_id in _CAPS %}
-      {% set _high_losses = c.recent_losses is not none and c.recent_losses >= 2 %}
-      {% set _escalated   = _is_capital or _high_losses %}
+      {% set _is_capital    = c.ship_group_id in _CAPS %}
+      {% set _high_losses   = c.recent_losses is not none and c.recent_losses >= 2 %}
+      {% set _expensive_fit = c.security_status is not none
+                              and c.security_status >= 0.45
+                              and c.at_risk_value is not none
+                              and c.at_risk_value >= 60000000 %}
+      {% set _escalated     = _is_capital or _high_losses or _expensive_fit %}
 
       <div class="card p-3 group" style="overflow:visible">
         <p class="label mb-1.5">
@@ -159,6 +163,21 @@
               </div>
               {% if _is_capital %}
               <span class="font-mono font-700 flex-shrink-0 spice">→ HIGH</span>
+              {% else %}
+              <span class="font-mono text-dune-muted flex-shrink-0">—</span>
+              {% endif %}
+            </div>
+
+            <!-- Fitting value -->
+            <div class="flex items-start justify-between gap-3 mb-2">
+              <div class="min-w-0">
+                <p class="text-dune-muted font-display mb-0.5">Fitting value</p>
+                <p class="font-mono {% if _expensive_fit %}spice{% else %}text-dune-muted{% endif %}">
+                  {% if c.at_risk_value %}{{ c.at_risk_value | fmt_isk }} ISK{% else %}not in space{% endif %}
+                </p>
+              </div>
+              {% if _expensive_fit %}
+              <span class="font-mono font-700 flex-shrink-0 spice">→ MED</span>
               {% else %}
               <span class="font-mono text-dune-muted flex-shrink-0">—</span>
               {% endif %}
