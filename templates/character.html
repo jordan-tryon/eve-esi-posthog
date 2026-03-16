@@ -64,145 +64,187 @@
 <!-- ══ OVERVIEW TAB ══ -->
 <div id="panel-overview">
 
-<!-- Metric cards -->
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+<!-- ── Grouped metric cards ── -->
+<div class="flex flex-col lg:flex-row gap-3 mb-6">
 
-  <div class="card p-4">
-    <p class="label mb-2">Wallet</p>
-    <p class="metric-val">
-      {% if c.wallet_balance is not none %}{{ '{:,.0f}'.format(c.wallet_balance) }}{% else %}—{% endif %}
-    </p>
-    <p class="text-dune-muted text-xs font-mono mt-0.5">ISK</p>
+  <!-- LIVE STATUS -->
+  <div class="flex-1 min-w-0">
+    <p class="mb-2 font-mono text-xs tracking-widest" style="color:#3a3e46">LIVE STATUS</p>
+    <div class="grid grid-cols-3 gap-3">
+
+      <div class="card p-3">
+        <p class="label mb-1.5">Location</p>
+        <p class="font-display font-600 text-dune-bright text-sm truncate">{{ c.system_name or '—' }}</p>
+        {% if c.security_status is not none %}
+        <p class="text-xs font-mono mt-0.5 {% if c.security_status >= 0.45 %}sec-high{% elif c.security_status >= 0.05 %}sec-low{% else %}sec-null{% endif %}">
+          {{ '%.2f'|format(c.security_status) }}
+        </p>
+        {% endif %}
+      </div>
+
+      <div class="card p-3">
+        <p class="label mb-1.5">Ship</p>
+        <p class="font-display font-600 text-dune-bright text-sm truncate">{{ c.ship_name or '—' }}</p>
+        {% if c.total_sp %}
+        <p class="text-xs font-mono text-dune-muted mt-0.5">{{ '{:,.0f}'.format(c.total_sp) }} SP</p>
+        {% endif %}
+      </div>
+
+      <div class="card p-3">
+        <p class="label mb-1.5">Risk</p>
+        <p class="font-display font-700 text-sm risk-{{ c.risk_level or 'LOW' }}">{{ c.risk_level or '—' }}</p>
+        {% if c.recent_losses %}
+        <p class="text-xs spice mt-0.5 font-display">{{ c.recent_losses }} loss / 24h</p>
+        {% else %}
+        <p class="text-xs text-dune-muted mt-0.5 font-mono">no losses</p>
+        {% endif %}
+      </div>
+
+    </div>
   </div>
 
-  <div class="card p-4">
-    <p class="label mb-2">ISK / Hour</p>
-    <p class="metric-val sand">
-      {% if c.isk_hour is not none %}{{ '{:,.0f}'.format(c.isk_hour) }}{% else %}—{% endif %}
-    </p>
-    <p class="text-dune-muted text-xs font-display mt-0.5">{{ c.activity_type or '—' }}</p>
+  <div class="hidden lg:block w-px self-stretch" style="background:#2a2d35"></div>
+
+  <!-- FINANCES -->
+  <div class="flex-1 min-w-0">
+    <p class="mb-2 font-mono text-xs tracking-widest" style="color:#3a3e46">FINANCES</p>
+    <div class="grid grid-cols-3 gap-3">
+
+      <div class="card p-3">
+        <p class="label mb-1.5">Wallet</p>
+        <p class="font-mono font-600 text-dune-bright text-sm">
+          {% if c.wallet_balance is not none %}{{ '{:,.0f}'.format(c.wallet_balance / 1e6) }}M{% else %}—{% endif %}
+        </p>
+        <p class="text-dune-muted text-xs font-mono mt-0.5">ISK</p>
+      </div>
+
+      <div class="card p-3">
+        <p class="label mb-1.5">ISK / Hour</p>
+        <p class="font-mono font-600 text-sm sand">
+          {% if c.isk_hour is not none %}{{ '{:,.0f}'.format(c.isk_hour / 1e3) }}K{% else %}—{% endif %}
+        </p>
+        <p class="text-dune-muted text-xs font-display mt-0.5 truncate">{{ c.activity_type or '—' }}</p>
+      </div>
+
+      <div class="card p-3">
+        <p class="label mb-1.5">Gains / Hour</p>
+        <p class="font-mono font-600 text-sm {% if c.wealth_isk_hour and c.wealth_isk_hour > 0 %}sec-high{% elif c.wealth_isk_hour and c.wealth_isk_hour < 0 %}spice{% else %}text-dune-muted{% endif %}">
+          {% if c.wealth_isk_hour is not none %}{{ '{:+,.0f}'.format(c.wealth_isk_hour / 1e3) }}K{% else %}—{% endif %}
+        </p>
+        <p class="text-dune-muted text-xs font-mono mt-0.5">wealth/hr</p>
+      </div>
+
+    </div>
   </div>
 
-  <div class="card p-4">
-    <p class="label mb-2">Risk</p>
-    <p class="metric-val risk-{{ c.risk_level or 'LOW' }}">{{ c.risk_level or '—' }}</p>
-    {% if c.recent_losses %}
-    <p class="text-xs spice mt-0.5 font-display">{{ c.recent_losses }} loss(es) / 24h</p>
-    {% endif %}
-  </div>
+  <div class="hidden lg:block w-px self-stretch" style="background:#2a2d35"></div>
 
-  <div class="card p-4">
-    <p class="label mb-2">Location</p>
-    <p class="font-display font-600 text-dune-bright truncate">{{ c.system_name or '—' }}</p>
-    {% if c.security_status is not none %}
-    <p class="text-xs font-mono mt-0.5 {% if c.security_status >= 0.45 %}sec-high{% elif c.security_status >= 0.05 %}sec-low{% else %}sec-null{% endif %}">
-      {{ '%.2f'|format(c.security_status) }}
-    </p>
-    {% endif %}
-  </div>
+  <!-- WEALTH -->
+  <div class="flex-1 min-w-0">
+    <p class="mb-2 font-mono text-xs tracking-widest" style="color:#3a3e46">WEALTH</p>
+    <div class="grid grid-cols-2 gap-3">
 
-  <div class="card p-4">
-    <p class="label mb-2">Ship</p>
-    <p class="font-display font-600 text-dune-bright truncate">{{ c.ship_name or '—' }}</p>
-    {% if c.total_sp %}
-    <p class="text-xs font-mono text-dune-muted mt-0.5">{{ '{:,.0f}'.format(c.total_sp) }} SP</p>
-    {% endif %}
-  </div>
+      <div class="card p-3">
+        <p class="label mb-1.5">Est. Value</p>
+        <p class="font-mono font-600 text-sm sand">
+          {% if c.estimated_value %}{{ '{:,.2f}'.format(c.estimated_value / 1e9) }}B{% else %}—{% endif %}
+        </p>
+        <p class="text-dune-muted text-xs font-mono mt-0.5">ISK total</p>
+      </div>
 
-  <div class="card p-4">
-    <p class="label mb-2">Est. Value</p>
-    <p class="metric-val sand">
-      {% if c.estimated_value %}{{ '{:,.2f}'.format(c.estimated_value / 1e9) }}{% else %}—{% endif %}
-    </p>
-    <p class="text-dune-muted text-xs font-mono mt-0.5">billion ISK</p>
+      <div class="card p-3 {% if c.at_risk_value and c.at_risk_value > 0 %}border-dune-spice{% endif %}">
+        <p class="label mb-1.5" {% if c.at_risk_value and c.at_risk_value > 0 %}style="color:#d4742a"{% endif %}>
+          {% if c.at_risk_value and c.at_risk_value > 0 %}⚠ At Risk{% else %}At Risk{% endif %}
+        </p>
+        <p class="font-mono font-600 text-sm {% if c.at_risk_value and c.at_risk_value > 0 %}spice{% else %}text-dune-muted{% endif %}">
+          {% if c.at_risk_value and c.at_risk_value > 0 %}{{ '{:,.0f}'.format(c.at_risk_value / 1e6) }}M{% else %}—{% endif %}
+        </p>
+        <p class="text-dune-muted text-xs font-mono mt-0.5">in space</p>
+      </div>
+
+    </div>
   </div>
 
 </div>
 
-<!-- Wealth metrics row -->
-<div class="grid grid-cols-2 gap-3 mb-6">
-  <div class="card p-4">
-    <p class="label mb-2">Unrealized Gains / Hour</p>
-    <p class="metric-val {% if c.wealth_isk_hour and c.wealth_isk_hour > 0 %}sec-high{% elif c.wealth_isk_hour and c.wealth_isk_hour < 0 %}spice{% endif %}">
-      {% if c.wealth_isk_hour is not none %}{{ '{:+,.0f}'.format(c.wealth_isk_hour) }}{% else %}—{% endif %}
-    </p>
-    <p class="text-dune-muted text-xs font-mono mt-0.5">ISK/hr total wealth</p>
-  </div>
-  <div class="card p-4 {% if c.at_risk_value and c.at_risk_value > 0 %}border-dune-spice{% endif %}">
-    <p class="label mb-2" {% if c.at_risk_value and c.at_risk_value > 0 %}style="color:#d4742a"{% endif %}>
-      {% if c.at_risk_value and c.at_risk_value > 0 %}⚠ Assets At Risk{% else %}Assets At Risk{% endif %}
-    </p>
-    <p class="metric-val {% if c.at_risk_value and c.at_risk_value > 0 %}spice{% else %}text-dune-muted{% endif %}">
-      {% if c.at_risk_value and c.at_risk_value > 0 %}{{ '{:,.1f}'.format(c.at_risk_value / 1e6) }}{% else %}0{% endif %}
-    </p>
-    <p class="text-dune-muted text-xs font-mono mt-0.5">million ISK in space</p>
-  </div>
-</div>
-
-<!-- Charts -->
+<!-- ── Charts — wallet + ISK/hr stacked left, activity doughnut right ── -->
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-6">
-  <div class="card p-4 lg:col-span-2">
-    <p class="label mb-3">Wallet Balance</p>
-    <canvas id="walletChart" height="110"></canvas>
+  <div class="lg:col-span-2 flex flex-col gap-3">
+    <div class="card p-4">
+      <p class="label mb-3">Wallet Balance</p>
+      <canvas id="walletChart" height="90"></canvas>
+    </div>
+    <div class="card p-4">
+      <p class="label mb-3">ISK / Hour</p>
+      <canvas id="iskHourChart" height="60"></canvas>
+    </div>
   </div>
-  <div class="card p-4">
+  <div class="card p-4 flex flex-col">
     <p class="label mb-3">ISK Sources</p>
-    <div style="max-height:200px;position:relative;">
+    <div class="flex-1 flex items-center justify-center" style="min-height:180px;position:relative">
       <canvas id="activityChart"></canvas>
     </div>
   </div>
 </div>
 
+<!-- ── Recent Activity — Sessions / Losses tabbed ── -->
 <div class="card p-4 mb-6">
-  <p class="label mb-3">ISK / Hour History</p>
-  <canvas id="iskHourChart" height="80"></canvas>
-</div>
+  <div class="flex items-center gap-5 mb-4 border-b border-dune-border pb-3">
+    <button id="act-btn-sessions" onclick="switchActivity('sessions')"
+      class="act-btn font-display font-600 text-sm tracking-wider sand" style="border-bottom:2px solid #c8a96e;padding-bottom:2px">
+      Sessions
+    </button>
+    <button id="act-btn-losses" onclick="switchActivity('losses')"
+      class="act-btn font-display text-sm tracking-wider text-dune-muted" style="border-bottom:2px solid transparent;padding-bottom:2px">
+      Losses
+    </button>
+  </div>
 
-
-<!-- Sessions + Losses -->
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
-
-  <div class="card p-4">
-    <p class="label mb-3">Recent Sessions</p>
+  <!-- Sessions panel -->
+  <div id="act-panel-sessions">
     {% if sessions %}
     <table class="w-full text-sm font-display">
       <thead><tr class="border-b border-dune-border text-left">
-        <th class="pb-2 pr-3 label">Started</th>
-        <th class="pb-2 pr-3 label">Ended</th>
-        <th class="pb-2 label">ISK Earned</th>
+        <th class="pb-2 pr-4 label">Started</th>
+        <th class="pb-2 pr-4 label">Ended</th>
+        <th class="pb-2 pr-4 label">Ship</th>
+        <th class="pb-2 pr-4 label">System</th>
+        <th class="pb-2 label text-right">ISK Earned</th>
       </tr></thead>
       <tbody>
         {% for s in sessions %}
-        <tr class="row border-b border-dune-border border-opacity-40">
-          <td class="py-1.5 pr-3 text-dune-muted font-mono text-xs">{{ s.started_at[:16].replace('T',' ') }}</td>
-          <td class="py-1.5 pr-3 font-mono text-xs">
+        <tr class="row border-b border-dune-border border-opacity-30">
+          <td class="py-1.5 pr-4 text-dune-muted font-mono text-xs">{{ s.started_at[:16].replace('T',' ') }}</td>
+          <td class="py-1.5 pr-4 font-mono text-xs">
             {% if s.ended_at %}{{ s.ended_at[:16].replace('T',' ') }}
             {% else %}<span class="sec-high">Active</span>{% endif %}
           </td>
-          <td class="py-1.5 sand font-mono text-xs">
+          <td class="py-1.5 pr-4 text-xs font-display">{{ s.ship_name or '—' }}</td>
+          <td class="py-1.5 pr-4 text-xs font-mono text-dune-muted">{{ s.system_name or '—' }}</td>
+          <td class="py-1.5 sand font-mono text-xs text-right">
             {% if s.isk_earned %}{{ '{:,.0f}'.format(s.isk_earned) }}{% else %}—{% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    {% else %}<p class="text-dune-muted text-sm">No sessions yet.</p>{% endif %}
+    {% else %}<p class="text-dune-muted text-sm">No sessions recorded yet.</p>{% endif %}
   </div>
 
-  <div class="card p-4">
-    <p class="label mb-3">Recent Losses</p>
+  <!-- Losses panel -->
+  <div id="act-panel-losses" style="display:none">
     {% if losses %}
     <table class="w-full text-sm font-display">
       <thead><tr class="border-b border-dune-border text-left">
-        <th class="pb-2 pr-3 label">Time</th>
-        <th class="pb-2 pr-3 label">Ship</th>
+        <th class="pb-2 pr-4 label">Time</th>
+        <th class="pb-2 pr-4 label">Ship Type ID</th>
         <th class="pb-2 label">System</th>
       </tr></thead>
       <tbody>
         {% for loss in losses %}
-        <tr class="row border-b border-dune-border border-opacity-40">
-          <td class="py-1.5 pr-3 text-dune-muted font-mono text-xs">{{ loss.kill_time[:16].replace('T',' ') }}</td>
-          <td class="py-1.5 pr-3 spice font-mono text-xs">{{ loss.ship_type_id or '—' }}</td>
+        <tr class="row border-b border-dune-border border-opacity-30">
+          <td class="py-1.5 pr-4 text-dune-muted font-mono text-xs">{{ loss.kill_time[:16].replace('T',' ') }}</td>
+          <td class="py-1.5 pr-4 spice font-mono text-xs">{{ loss.ship_type_id or '—' }}</td>
           <td class="py-1.5 text-dune-muted font-mono text-xs">{{ loss.solar_system_id or '—' }}</td>
         </tr>
         {% endfor %}
@@ -210,74 +252,9 @@
     </table>
     {% else %}<p class="text-dune-muted text-sm">No losses recorded.</p>{% endif %}
   </div>
-
 </div>
 
-<!-- ISK Gains (expandable) -->
-<div class="card p-4 mb-3">
-  <button class="w-full flex items-center justify-between" onclick="toggleSection('iskGains')">
-    <p class="label">ISK Gains</p>
-    <span id="iskGainsChevron" class="text-dune-muted text-xs font-mono">▶ show</span>
-  </button>
-  <div id="iskGains" style="display:none" class="mt-3 overflow-x-auto">
-    <table class="w-full text-sm font-display">
-      <thead><tr class="border-b border-dune-border text-left">
-        <th class="pb-2 pr-4 label">Time (UTC)</th>
-        <th class="pb-2 pr-4 label text-right">Wallet</th>
-        <th class="pb-2 pr-4 label text-right">Delta</th>
-        <th class="pb-2 label text-right">ISK/hr</th>
-      </tr></thead>
-      <tbody>
-        {% for s in snapshots[:48] %}
-        <tr class="row border-b border-dune-border border-opacity-30">
-          <td class="py-1.5 pr-4 text-dune-muted font-mono text-xs">{{ s.captured_at[:19].replace('T',' ') }}</td>
-          <td class="py-1.5 pr-4 font-mono text-xs text-right">{% if s.wallet_balance is not none %}{{ '{:,.0f}'.format(s.wallet_balance) }}{% else %}—{% endif %}</td>
-          <td class="py-1.5 pr-4 font-mono text-xs text-right {% if s.isk_hour and s.isk_hour > 0 %}sec-high{% elif s.isk_hour and s.isk_hour < 0 %}spice{% endif %}">
-            {% if s.isk_hour is not none and s.isk_hour != 0 %}{{ '{:+,.0f}'.format(s.isk_hour) }}{% else %}—{% endif %}
-          </td>
-          <td class="py-1.5 font-mono text-xs text-right sand">{% if s.isk_hour %}{{ '{:,.0f}'.format(s.isk_hour) }}{% else %}—{% endif %}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" class="py-6 text-center text-dune-muted">No snapshots yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- Asset Gains (expandable) -->
-<div class="card p-4 mb-3">
-  <button class="w-full flex items-center justify-between" onclick="toggleSection('assetGains')">
-    <p class="label">Asset Gains (Est. Value)</p>
-    <span id="assetGainsChevron" class="text-dune-muted text-xs font-mono">▶ show</span>
-  </button>
-  <div id="assetGains" style="display:none" class="mt-3 overflow-x-auto">
-    <table class="w-full text-sm font-display">
-      <thead><tr class="border-b border-dune-border text-left">
-        <th class="pb-2 pr-4 label">Time (UTC)</th>
-        <th class="pb-2 pr-4 label text-right">Est. Value</th>
-        <th class="pb-2 pr-4 label text-right">Delta</th>
-        <th class="pb-2 label text-right">Wealth ISK/hr</th>
-      </tr></thead>
-      <tbody>
-        {% for s in snapshots[:48] %}
-        <tr class="row border-b border-dune-border border-opacity-30">
-          <td class="py-1.5 pr-4 text-dune-muted font-mono text-xs">{{ s.captured_at[:19].replace('T',' ') }}</td>
-          <td class="py-1.5 pr-4 font-mono text-xs text-right">{% if s.estimated_value %}{{ '{:,.0f}'.format(s.estimated_value / 1e6) }}M{% else %}—{% endif %}</td>
-          <td class="py-1.5 pr-4 font-mono text-xs text-right {% if s.wealth_isk_hour and s.wealth_isk_hour > 0 %}sec-high{% elif s.wealth_isk_hour and s.wealth_isk_hour < 0 %}spice{% endif %}">
-            {% if s.wealth_isk_hour is not none and s.wealth_isk_hour != 0 %}{{ '{:+,.0f}'.format(s.wealth_isk_hour) }}{% else %}—{% endif %}
-          </td>
-          <td class="py-1.5 font-mono text-xs text-right sand">{% if s.wealth_isk_hour %}{{ '{:,.0f}'.format(s.wealth_isk_hour) }}{% else %}—{% endif %}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" class="py-6 text-center text-dune-muted">No snapshots yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- Snapshot history -->
+<!-- ── Snapshot history (unified, expandable) ── -->
 <div class="card p-4">
   <button class="w-full flex items-center justify-between" onclick="toggleSection('snapshotHistory')">
     <p class="label">Snapshot History</p>
@@ -287,26 +264,32 @@
     <table class="w-full text-sm font-display">
       <thead><tr class="border-b border-dune-border text-left">
         <th class="pb-2 pr-4 label">Time (UTC)</th>
-        <th class="pb-2 pr-4 label">Wallet</th>
-        <th class="pb-2 pr-4 label">ISK/hr</th>
+        <th class="pb-2 pr-4 label text-right">Wallet</th>
+        <th class="pb-2 pr-4 label text-right">ISK/hr</th>
+        <th class="pb-2 pr-4 label text-right">Est. Value</th>
+        <th class="pb-2 pr-4 label text-right">Wealth/hr</th>
         <th class="pb-2 pr-4 label">Activity</th>
         <th class="pb-2 pr-4 label">Risk</th>
         <th class="pb-2 pr-4 label">System</th>
         <th class="pb-2 label">Ship</th>
       </tr></thead>
       <tbody>
-        {% for s in snapshots[:48] %}
-        <tr class="row border-b border-dune-border border-opacity-30">
-          <td class="py-1.5 pr-4 text-dune-muted font-mono text-xs">{{ s.captured_at[:19].replace('T',' ') }}</td>
-          <td class="py-1.5 pr-4 font-mono text-xs">{% if s.wallet_balance is not none %}{{ '{:,.0f}'.format(s.wallet_balance) }}{% else %}—{% endif %}</td>
-          <td class="py-1.5 pr-4 sand font-mono text-xs">{% if s.isk_hour %}{{ '{:,.0f}'.format(s.isk_hour) }}{% else %}—{% endif %}</td>
-          <td class="py-1.5 pr-4 text-dune-muted text-xs">{{ s.activity_type or '—' }}</td>
-          <td class="py-1.5 pr-4 risk-{{ s.risk_level or '' }} text-xs font-600">{{ s.risk_level or '—' }}</td>
-          <td class="py-1.5 pr-4 text-xs">{{ s.system_name or '—' }}</td>
-          <td class="py-1.5 text-xs">{{ s.ship_name or '—' }}</td>
+        {% for s in snapshots[:168] %}
+        <tr class="row border-b border-dune-border border-opacity-20">
+          <td class="py-1 pr-4 text-dune-muted font-mono text-xs whitespace-nowrap">{{ s.captured_at[:16].replace('T',' ') }}</td>
+          <td class="py-1 pr-4 font-mono text-xs text-right">{% if s.wallet_balance is not none %}{{ '{:,.0f}'.format(s.wallet_balance / 1e6) }}M{% else %}—{% endif %}</td>
+          <td class="py-1 pr-4 font-mono text-xs text-right {% if s.isk_hour and s.isk_hour > 0 %}sec-high{% elif s.isk_hour and s.isk_hour < 0 %}spice{% endif %}">
+            {% if s.isk_hour %}{{ '{:+,.0f}'.format(s.isk_hour / 1e3) }}K{% else %}—{% endif %}</td>
+          <td class="py-1 pr-4 font-mono text-xs text-right sand">{% if s.estimated_value %}{{ '{:,.2f}'.format(s.estimated_value / 1e9) }}B{% else %}—{% endif %}</td>
+          <td class="py-1 pr-4 font-mono text-xs text-right {% if s.wealth_isk_hour and s.wealth_isk_hour > 0 %}sec-high{% elif s.wealth_isk_hour and s.wealth_isk_hour < 0 %}spice{% endif %}">
+            {% if s.wealth_isk_hour %}{{ '{:+,.0f}'.format(s.wealth_isk_hour / 1e3) }}K{% else %}—{% endif %}</td>
+          <td class="py-1 pr-4 text-dune-muted text-xs">{{ s.activity_type or '—' }}</td>
+          <td class="py-1 pr-4 risk-{{ s.risk_level or '' }} text-xs font-600">{{ s.risk_level or '—' }}</td>
+          <td class="py-1 pr-4 text-xs">{{ s.system_name or '—' }}</td>
+          <td class="py-1 text-xs">{{ s.ship_name or '—' }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="py-6 text-center text-dune-muted">No snapshots yet.</td></tr>
+        <tr><td colspan="9" class="py-6 text-center text-dune-muted">No snapshots yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -420,6 +403,17 @@ function toggleSection(id) {
   const open = el.style.display === 'none';
   el.style.display  = open ? 'block' : 'none';
   chv.textContent   = open ? '▼ hide' : '▶ show';
+}
+
+function switchActivity(name) {
+  ['sessions','losses'].forEach(t => {
+    document.getElementById('act-panel-' + t).style.display = t === name ? '' : 'none';
+  });
+  document.querySelectorAll('.act-btn').forEach(b => {
+    const active = b.id === 'act-btn-' + name;
+    b.style.borderBottomColor = active ? '#c8a96e' : 'transparent';
+    b.style.color = active ? '#c8a96e' : '#6b7280';
+  });
 }
 
 async function loadCharts() {
