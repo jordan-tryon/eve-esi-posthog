@@ -13,14 +13,23 @@ class ESIClient:
             "Accept": "application/json",
             "User-Agent": "eve-esi-posthog/0.1 (contact: your@email.com)",
         }
+        self._type_cache: dict[int, dict] = {}
+        self._group_cache: dict[int, dict] = {}
+        # Persistent client — reuses TCP connections, thread-safe
+        self._client = httpx.Client(
+            headers=self._headers,
+            params={"datasource": DEFAULT_DATASOURCE},
+            timeout=30,
+        )
+
+    def close(self):
+        self._client.close()
 
     def _get(self, path: str, params: dict | None = None) -> dict | list:
         url = f"{ESI_BASE}{path}"
-        p = {"datasource": DEFAULT_DATASOURCE, **(params or {})}
-        with httpx.Client() as client:
-            resp = client.get(url, headers=self._headers, params=p, timeout=30)
-            resp.raise_for_status()
-            return resp.json()
+        resp = self._client.get(url, params=params or {})
+        resp.raise_for_status()
+        return resp.json()
 
     def get_public_info(self, character_id: int) -> dict:
         return self._get(f"/characters/{character_id}/")
@@ -52,10 +61,9 @@ class ESIClient:
     def get_universe_names(self, ids: list[int]) -> list[dict]:
         """Resolve a list of type/entity IDs to names. Max 1000 per call."""
         url = f"{ESI_BASE}/universe/names/"
-        with httpx.Client() as client:
-            resp = client.post(url, json=ids, params={"datasource": DEFAULT_DATASOURCE}, timeout=30)
-            resp.raise_for_status()
-            return resp.json()
+        resp = self._client.post(url, json=ids)
+        resp.raise_for_status()
+        return resp.json()
 
     def get_wallet_journal(self, character_id: int, page: int = 1) -> list:
         return self._get(f"/characters/{character_id}/wallet/journal/", {"page": page})
@@ -66,21 +74,15 @@ class ESIClient:
         all_entries = []
         page = 1
         while True:
-            with httpx.Client() as client:
-                resp = client.get(
-                    url,
-                    headers=self._headers,
-                    params={"datasource": DEFAULT_DATASOURCE, "page": page},
-                    timeout=30,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                all_entries.extend(data)
-                total_pages = int(resp.headers.get("X-Pages", 1))
-                print(f"  [esi] journal page {page}/{total_pages} ({len(data)} entries)")
-                if page >= total_pages:
-                    break
-                page += 1
+            resp = self._client.get(url, params={"page": page})
+            resp.raise_for_status()
+            data = resp.json()
+            all_entries.extend(data)
+            total_pages = int(resp.headers.get("X-Pages", 1))
+            print(f"  [esi] journal page {page}/{total_pages} ({len(data)} entries)")
+            if page >= total_pages:
+                break
+            page += 1
         return all_entries
 
     def get_killmails_recent(self, character_id: int) -> list:
@@ -93,7 +95,14 @@ class ESIClient:
         return self._get(f"/universe/systems/{system_id}/")
 
     def get_type_info(self, type_id: int) -> dict:
-        return self._get(f"/universe/types/{type_id}/")
+        if type_id not in self._type_cache:
+            self._type_cache[type_id] = self._get(f"/universe/types/{type_id}/")
+        return self._type_cache[type_id]
+
+    def get_group_info(self, group_id: int) -> dict:
+        if group_id not in self._group_cache:
+            self._group_cache[group_id] = self._get(f"/universe/groups/{group_id}/")
+        return self._group_cache[group_id]
 
     def get_online(self, character_id: int) -> dict:
         return self._get(f"/characters/{character_id}/online/")
@@ -110,12 +119,10 @@ class ESIClient:
         all_assets = []
         page = 1
         while True:
-            with httpx.Client() as client:
-                resp = client.get(url, headers=self._headers,
-                                  params={"datasource": DEFAULT_DATASOURCE, "page": page}, timeout=30)
-                resp.raise_for_status()
-                all_assets.extend(resp.json())
-                if page >= int(resp.headers.get("X-Pages", 1)):
-                    break
-                page += 1
+            resp = self._client.get(url, params={"page": page})
+            resp.raise_for_status()
+            all_assets.extend(resp.json())
+            if page >= int(resp.headers.get("X-Pages", 1)):
+                break
+            page += 1
         return all_assets
