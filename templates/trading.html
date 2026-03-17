@@ -207,6 +207,16 @@
     </div>
 
     <div class="flex-1"></div>
+    <!-- Tracked-only filter -->
+    <button id="invTrackedBtn" onclick="toggleTrackedOnly()"
+      class="btn-ghost text-xs px-2 py-1 rounded-sm border border-dune-border text-dune-muted hover:border-dune-sand transition-colors">
+      Tracked Only
+    </button>
+    <!-- Clear all tracked -->
+    <button onclick="clearAllTracked()"
+      class="btn-ghost text-xs px-2 py-1 rounded-sm border border-dune-border text-dune-muted hover:border-spice hover:border-opacity-60 transition-colors">
+      Clear Tracked
+    </button>
     <button onclick="loadInventory()" id="invRefreshBtn" class="btn-ghost text-xs px-2 py-1 rounded-sm">Refresh</button>
   </div>
 
@@ -312,9 +322,10 @@ function renderActiveOrders(data) {
 // ── Inventory state ───────────────────────────────────────────────────────────
 let _invData    = null;   // raw {by_location: {...}}
 let _invFlat    = [];     // flat array of all items (with location_name added)
-let _invGroupBy  = 'location';
-let _invSort     = 'value';
-let _invSortAsc  = false;   // default desc
+let _invGroupBy     = 'location';
+let _invSort        = 'value';
+let _invSortAsc     = false;   // default desc
+let _invTrackedOnly = false;
 
 function toggleSortDir() {
   _invSortAsc = !_invSortAsc;
@@ -331,6 +342,33 @@ function setGroupBy(mode) {
   document.getElementById('grp-location').style.background = mode === 'location' ? 'rgba(200,169,110,0.08)' : '';
   document.getElementById('grp-item').style.background     = mode === 'item'     ? 'rgba(200,169,110,0.08)' : '';
   applyInventoryView();
+}
+
+function toggleTrackedOnly() {
+  _invTrackedOnly = !_invTrackedOnly;
+  const btn = document.getElementById('invTrackedBtn');
+  btn.style.borderColor = _invTrackedOnly ? '#c8a96e' : '';
+  btn.style.color = _invTrackedOnly ? '#c8a96e' : '';
+  applyInventoryView();
+}
+
+async function clearAllTracked() {
+  if (!_trackedItems.size) return;
+  const ids = [..._trackedItems];
+  await Promise.all(ids.map(id => fetch(`/api/c/${CID}/track-item/${id}`, {method: 'DELETE'})));
+  for (const id of ids) {
+    _trackedItems.delete(id);
+    const card = document.getElementById(`hist-card-${id}`);
+    if (card) card.remove();
+    if (_historyCharts[id]) { _historyCharts[id].destroy(); delete _historyCharts[id]; }
+    const btn = document.getElementById(`track-btn-${id}`);
+    if (btn) {
+      btn.textContent = 'Track';
+      btn.className = 'text-xs px-2 py-0.5 rounded-sm border transition-colors border-dune-border text-dune-muted hover:border-dune-sand hover:sand';
+    }
+  }
+  document.getElementById('trackedSection').classList.add('hidden');
+  if (_invFlat.length) applyInventoryView();
 }
 
 function setInvSort(col) {
@@ -413,6 +451,7 @@ function applyInventoryView() {
   const qtyMax  = parseFloat(document.getElementById('fqty-max').value);
 
   const visible = _invFlat.filter(i => {
+    if (_invTrackedOnly && !_trackedItems.has(i.type_id)) return false;
     if (filter && !i.type_name.toLowerCase().includes(filter) && !i.location_name.toLowerCase().includes(filter)) return false;
     if (!isNaN(valMin) && i.est_value < valMin) return false;
     if (!isNaN(valMax) && i.est_value > valMax) return false;
@@ -596,7 +635,9 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
   // 7-day linear regression projection using last 14 data points
   const fitWindow = avg.slice(-14).filter(Boolean);
   const projLabels = [];
-  const projData   = new Array(avg.length).fill(null);  // nulls over historical range
+  // Fill nulls for historical range, then bridge with the last actual avg so there's no gap
+  const projData = new Array(avg.length).fill(null);
+  projData[avg.length - 1] = avg[avg.length - 1] || null;  // bridge point
   if (fitWindow.length >= 3) {
     const n  = fitWindow.length;
     const xs = fitWindow.map((_, i) => i);
@@ -606,7 +647,6 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
     const sumX2 = xs.reduce((s, x) => s + x * x, 0);
     const slope     = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
     const intercept = (sumY - slope * sumX) / n;
-    // Project 7 days ahead; last fitted x = n-1
     const lastDate = new Date(history[history.length - 1].date);
     for (let d = 1; d <= 7; d++) {
       const projVal = intercept + slope * (n - 1 + d);
@@ -617,6 +657,8 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
     }
   }
   const allLabels = [...labels, ...projLabels];
+  // Segment index where projection starts (bridge point)
+  const projStartIdx = avg.length - 1;
 
   // Near 30d high?
   const validAvg = avg.filter(Boolean);
@@ -641,7 +683,7 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
       </div>
       <div class="flex gap-2 items-center">
         <span class="text-xs font-mono px-1.5 py-0.5 rounded-sm border border-dune-border" style="${vol.badge}">${vol.label}</span>
-        <button onclick="untrackItem(${typeId})" class="text-xs text-dune-muted hover:spice transition-colors">×</button>
+        <button onclick="untrackItem(${typeId})" class="text-base leading-none font-600 text-dune-muted hover:spice transition-colors px-1" title="Remove">×</button>
       </div>
     </div>
     <canvas id="${id}" height="90"></canvas>
@@ -676,13 +718,22 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
         {
           label: '7d Projection',
           data: projData,
-          borderColor: '#38bdf8',
-          backgroundColor: 'rgba(56,189,248,0.08)',
+          borderColor: ctx => {
+            const i = ctx.p1DataIndex;
+            // Fade from sand → sky-blue across the first 3 projection segments
+            if (i <= projStartIdx) return '#c8a96e';
+            const t = Math.min((i - projStartIdx) / 3, 1);
+            const r = Math.round(200 + (56  - 200) * t);
+            const g = Math.round(169 + (189 - 169) * t);
+            const b = Math.round(110 + (248 - 110) * t);
+            return `rgb(${r},${g},${b})`;
+          },
+          backgroundColor: 'rgba(56,189,248,0.07)',
           borderWidth: 1.5,
           pointRadius: 0,
           tension: 0.3,
           fill: true,
-          borderDash: [5, 4],
+          borderDash: ctx => ctx.p1DataIndex > projStartIdx ? [5, 4] : [],
         }
       ]
     },
