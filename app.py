@@ -689,5 +689,100 @@ def api_market_history(character_id: int, type_id: int, region_id: int = 1000000
     return history
 
 
+@app.get("/api/c/{character_id}/inventory")
+def api_inventory(character_id: int):
+    """Return all hangar assets grouped by location, with names and est. value."""
+    token = auth.get_valid_token(character_id)
+    esi   = ESIClient(access_token=token)
+
+    try:
+        all_assets  = esi.get_assets_all(character_id)
+        prices_raw  = esi.get_market_prices()
+    finally:
+        esi.close()
+
+    price_map = {p["type_id"]: p.get("adjusted_price", 0.0) for p in prices_raw}
+
+    # Only keep items sitting in hangars (not fitted/in cargo/containers)
+    HANGAR_FLAGS = {
+        "Hangar", "AssetSafety", "FleetHangar",
+        "CorpSAG1", "CorpSAG2", "CorpSAG3",
+        "CorpSAG4", "CorpSAG5", "CorpSAG6", "CorpSAG7",
+        "Deliveries",
+    }
+    hangar_items = [a for a in all_assets if a.get("location_flag") in HANGAR_FLAGS]
+
+    if not hangar_items:
+        return {"by_location": {}, "location_names": {}}
+
+    # Resolve type names
+    type_ids = list({a["type_id"] for a in hangar_items})
+    type_names: dict[int, str] = {}
+    try:
+        esi2 = ESIClient(access_token=token)
+        for i in range(0, len(type_ids), 1000):
+            resolved = esi2.get_universe_names(type_ids[i:i+1000])
+            for r in resolved:
+                if r.get("category") == "inventory_type":
+                    type_names[r["id"]] = r["name"]
+        esi2.close()
+    except Exception as e:
+        print(f"[inventory] Name resolution failed: {e}")
+
+    # Resolve location names (NPC stations + solar systems via universe/names)
+    location_ids = list({a["location_id"] for a in hangar_items})
+    location_names: dict[int, str] = {}
+    # Split into NPC station range and structure range
+    npc_ids       = [lid for lid in location_ids if lid < 1_000_000_000_000]
+    structure_ids = [lid for lid in location_ids if lid >= 1_000_000_000_000]
+    try:
+        if npc_ids:
+            esi3 = ESIClient(access_token=token)
+            for i in range(0, len(npc_ids), 1000):
+                resolved = esi3.get_universe_names(npc_ids[i:i+1000])
+                for r in resolved:
+                    location_names[r["id"]] = r["name"]
+            esi3.close()
+    except Exception as e:
+        print(f"[inventory] Location name resolution failed: {e}")
+
+    for sid in structure_ids:
+        try:
+            esi4 = ESIClient(access_token=token)
+            info = esi4._get(f"/universe/structures/{sid}/")
+            esi4.close()
+            location_names[sid] = info.get("name", f"Structure {sid}")
+        except Exception:
+            location_names[sid] = f"Inaccessible Structure"
+
+    # Group by location
+    by_location: dict[str, list] = {}
+    for a in hangar_items:
+        loc_id   = a["location_id"]
+        loc_name = location_names.get(loc_id, f"Location {loc_id}")
+        item = {
+            "type_id":   a["type_id"],
+            "type_name": type_names.get(a["type_id"], f"Type {a['type_id']}"),
+            "quantity":  a.get("quantity", 1),
+            "est_value": round(a.get("quantity", 1) * price_map.get(a["type_id"], 0.0), 0),
+            "location_id": loc_id,
+        }
+        by_location.setdefault(loc_name, []).append(item)
+
+    # Sort each location's items by est_value desc
+    for items in by_location.values():
+        items.sort(key=lambda x: x["est_value"], reverse=True)
+
+    return {"by_location": by_location, "location_names": location_names}
+
+
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=False)
+    import os, signal
+    pid_file = ".app.pid"
+    with open(pid_file, "w") as f:
+        f.write(str(os.getpid()))
+    try:
+        uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=False)
+    finally:
+        if os.path.exists(pid_file):
+            os.unlink(pid_file)

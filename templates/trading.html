@@ -149,34 +149,69 @@
   </div>
 </div>
 
-<!-- Stocked Items & Sell Planner -->
+<!-- Tracked item charts -->
+<div id="trackedSection" class="hidden card p-4 mb-6">
+  <p class="label mb-3">Price History — Tracked Items</p>
+  <div id="trackedCharts" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+</div>
+
+<!-- Inventory -->
 <div class="card p-4 mb-6">
-  <div class="flex items-center justify-between mb-3">
-    <p class="font-display font-600 text-dune-bright tracking-wide text-sm">Stocked Items &amp; Sell Planner</p>
-    <p class="text-xs font-mono text-dune-muted">Click [Track] to load 30-day price history</p>
+  <div class="flex flex-wrap items-center gap-3 mb-3">
+    <p class="font-display font-600 text-dune-bright tracking-wide text-sm mr-1">Inventory</p>
+
+    <!-- Group-by toggle -->
+    <div class="flex rounded-sm border border-dune-border overflow-hidden text-xs font-display font-600 tracking-wider">
+      <button id="grp-location" onclick="setGroupBy('location')"
+        class="px-3 py-1 sand" style="background:rgba(200,169,110,0.08)">By Location</button>
+      <button id="grp-item" onclick="setGroupBy('item')"
+        class="px-3 py-1 text-dune-muted hover:text-dune-text transition-colors">By Item</button>
+    </div>
+
+    <!-- Filter -->
+    <input id="invFilter" type="text" placeholder="Filter items…"
+      oninput="applyInventoryView()"
+      class="bg-transparent border border-dune-border rounded-sm px-2 py-1 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand"
+      style="width:160px" />
+
+    <!-- Sort -->
+    <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
+      <span>Sort:</span>
+      <button id="isort-name"  onclick="setInvSort('name')"  class="hover:sand transition-colors">Name</button>
+      <span class="text-dune-border">|</span>
+      <button id="isort-value" onclick="setInvSort('value')" class="sand">Value</button>
+      <span class="text-dune-border">|</span>
+      <button id="isort-qty"   onclick="setInvSort('qty')"   class="hover:sand transition-colors">Qty</button>
+      <button id="isort-dir" onclick="toggleSortDir()"
+        class="ml-1 px-1.5 py-0.5 border border-dune-border rounded-sm hover:border-dune-sand transition-colors">↓</button>
+    </div>
+
+    <!-- Value range -->
+    <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
+      <span>Value:</span>
+      <input id="fval-min" type="number" placeholder="min" oninput="applyInventoryView()"
+        class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+      <span>–</span>
+      <input id="fval-max" type="number" placeholder="max" oninput="applyInventoryView()"
+        class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+    </div>
+
+    <!-- Qty range -->
+    <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
+      <span>Qty:</span>
+      <input id="fqty-min" type="number" placeholder="min" oninput="applyInventoryView()"
+        class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+      <span>–</span>
+      <input id="fqty-max" type="number" placeholder="max" oninput="applyInventoryView()"
+        class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+    </div>
+
+    <div class="flex-1"></div>
+    <button onclick="loadInventory()" id="invRefreshBtn" class="btn-ghost text-xs px-2 py-1 rounded-sm">Refresh</button>
   </div>
 
-  <!-- Tracked items charts section -->
-  <div id="trackedSection" class="hidden mb-4 border-b border-dune-border pb-4">
-    <p class="label mb-3">Tracked Items</p>
-    <div id="trackedCharts" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
-  </div>
-
-  <!-- Assets from active orders -->
-  <div class="overflow-x-auto">
-    <table class="w-full text-xs font-mono">
-      <thead>
-        <tr class="text-dune-muted border-b border-dune-border">
-          <th class="text-left py-1.5 pr-3 font-400">Item</th>
-          <th class="text-right py-1.5 px-2 font-400">Active Qty</th>
-          <th class="text-right py-1.5 px-2 font-400">Price</th>
-          <th class="text-right py-1.5 pl-2 font-400">Track</th>
-        </tr>
-      </thead>
-      <tbody id="assetsBody">
-        <tr><td colspan="4" class="text-center text-dune-muted py-6">Loading…</td></tr>
-      </tbody>
-    </table>
+  <div id="inventoryBody">
+    <p class="text-xs font-mono text-dune-muted py-4 text-center">Click Refresh to load inventory from ESI</p>
   </div>
 </div>
 
@@ -184,7 +219,7 @@
 
 {% block scripts %}
 <script>
-const CID = {{ cid }};
+const CID = {{ character.character_id }};
 let _pnlData = [];
 let _pnlSort = 'net_profit';
 let _trackedItems = new Set();
@@ -274,37 +309,193 @@ function renderActiveOrders(data) {
   }).join('');
 }
 
-function renderAssets(activeOrders) {
-  const tbody = document.getElementById('assetsBody');
-  const sellOrders = activeOrders.filter(o => !o.is_buy_order);
-  if (!sellOrders.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-dune-muted py-6">No active sell orders</td></tr>';
+// ── Inventory state ───────────────────────────────────────────────────────────
+let _invData    = null;   // raw {by_location: {...}}
+let _invFlat    = [];     // flat array of all items (with location_name added)
+let _invGroupBy  = 'location';
+let _invSort     = 'value';
+let _invSortAsc  = false;   // default desc
+
+function toggleSortDir() {
+  _invSortAsc = !_invSortAsc;
+  document.getElementById('isort-dir').textContent = _invSortAsc ? '↑' : '↓';
+  applyInventoryView();
+}
+
+function setGroupBy(mode) {
+  _invGroupBy = mode;
+  document.getElementById('grp-location').className =
+    mode === 'location' ? 'px-3 py-1 sand' : 'px-3 py-1 text-dune-muted hover:text-dune-text transition-colors';
+  document.getElementById('grp-item').className =
+    mode === 'item' ? 'px-3 py-1 sand' : 'px-3 py-1 text-dune-muted hover:text-dune-text transition-colors';
+  document.getElementById('grp-location').style.background = mode === 'location' ? 'rgba(200,169,110,0.08)' : '';
+  document.getElementById('grp-item').style.background     = mode === 'item'     ? 'rgba(200,169,110,0.08)' : '';
+  applyInventoryView();
+}
+
+function setInvSort(col) {
+  if (_invSort === col) {
+    _invSortAsc = !_invSortAsc;
+    document.getElementById('isort-dir').textContent = _invSortAsc ? '↑' : '↓';
+  } else {
+    _invSort = col;
+    _invSortAsc = col === 'name';  // name defaults asc, value/qty default desc
+    document.getElementById('isort-dir').textContent = _invSortAsc ? '↑' : '↓';
+  }
+  ['name','value','qty'].forEach(c => {
+    document.getElementById('isort-' + c).className =
+      c === col ? 'sand' : 'hover:sand transition-colors';
+  });
+  applyInventoryView();
+}
+
+function _sortItems(items) {
+  return [...items].sort((a, b) => {
+    let cmp;
+    if (_invSort === 'name') cmp = a.type_name.localeCompare(b.type_name);
+    else if (_invSort === 'qty') cmp = a.quantity - b.quantity;
+    else cmp = a.est_value - b.est_value;
+    return _invSortAsc ? cmp : -cmp;
+  });
+}
+
+function _itemRow(item, extraCol) {
+  const tracked  = _trackedItems.has(item.type_id);
+  const safeName = item.type_name.replace(/'/g, "\\'");
+  return `<tr class="row border-b border-dune-border border-opacity-30">
+    <td class="py-1.5 pr-3 text-dune-text text-xs">${item.type_name}</td>
+    ${extraCol ? `<td class="py-1.5 px-2 text-dune-muted text-xs truncate max-w-40" title="${extraCol}">${extraCol}</td>` : ''}
+    <td class="text-right py-1.5 px-2 font-mono text-xs">${item.quantity.toLocaleString()}</td>
+    <td class="text-right py-1.5 px-2 font-mono text-xs text-dune-muted">${fmtIsk(item.est_value)}</td>
+    <td class="text-right py-1.5 pl-2">
+      <button onclick="toggleTrack(${item.type_id},'${safeName}',0)"
+              id="track-btn-${item.type_id}"
+              class="text-xs px-2 py-0.5 rounded-sm border transition-colors ${tracked ? 'border-dune-sand sand' : 'border-dune-border text-dune-muted hover:border-dune-sand hover:sand'}">
+        ${tracked ? 'Tracked' : 'Track'}
+      </button>
+    </td>
+  </tr>`;
+}
+
+function _groupBlock(heading, items, showLocation) {
+  const total = items.reduce((s, i) => s + i.est_value, 0);
+  const sorted = _sortItems(items);
+  const rows = sorted.map(i => _itemRow(i, showLocation ? i.location_name : null)).join('');
+  const locCol  = showLocation ? '<th class="text-left py-1 px-2 font-400">Location</th>' : '';
+  return `<div class="mb-5">
+    <div class="flex items-center justify-between py-1.5 border-b border-dune-border cursor-pointer select-none"
+         onclick="this.nextElementSibling.classList.toggle('hidden')">
+      <p class="font-display font-600 text-dune-text text-sm">${heading}</p>
+      <p class="text-xs font-mono text-dune-muted">${items.length} item${items.length !== 1 ? 's' : ''} — <span class="sand">${fmtIsk(total)} ISK</span></p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead><tr class="text-dune-muted text-xs">
+          <th class="text-left py-1 pr-3 font-400">Item</th>
+          ${locCol}
+          <th class="text-right py-1 px-2 font-400">Qty</th>
+          <th class="text-right py-1 px-2 font-400">Est. Value</th>
+          <th class="text-right py-1 pl-2 font-400">Track</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function applyInventoryView() {
+  if (!_invFlat.length) return;
+  const container = document.getElementById('inventoryBody');
+  const filter  = (document.getElementById('invFilter').value || '').toLowerCase();
+  const valMin  = parseFloat(document.getElementById('fval-min').value);
+  const valMax  = parseFloat(document.getElementById('fval-max').value);
+  const qtyMin  = parseFloat(document.getElementById('fqty-min').value);
+  const qtyMax  = parseFloat(document.getElementById('fqty-max').value);
+
+  const visible = _invFlat.filter(i => {
+    if (filter && !i.type_name.toLowerCase().includes(filter) && !i.location_name.toLowerCase().includes(filter)) return false;
+    if (!isNaN(valMin) && i.est_value < valMin) return false;
+    if (!isNaN(valMax) && i.est_value > valMax) return false;
+    if (!isNaN(qtyMin) && i.quantity < qtyMin) return false;
+    if (!isNaN(qtyMax) && i.quantity > qtyMax) return false;
+    return true;
+  });
+
+  if (!visible.length) {
+    container.innerHTML = '<p class="text-xs font-mono text-dune-muted py-4 text-center">No items match filter</p>';
     return;
   }
-  // Deduplicate by type_id, sum qty
-  const byType = {};
-  for (const o of sellOrders) {
-    const name = o.type_name || String(o.type_id);
-    if (!byType[o.type_id]) byType[o.type_id] = {type_id: o.type_id, type_name: name, qty: 0, price: o.price};
-    byType[o.type_id].qty += o.volume_remain;
+
+  if (_invGroupBy === 'location') {
+    // Group by location_name
+    const groups = {};
+    for (const item of visible) {
+      (groups[item.location_name] = groups[item.location_name] || []).push(item);
+    }
+    // Sort groups by total value desc
+    const sortedGroups = Object.keys(groups).sort((a, b) =>
+      groups[b].reduce((s, i) => s + i.est_value, 0) -
+      groups[a].reduce((s, i) => s + i.est_value, 0)
+    );
+    container.innerHTML = sortedGroups.map(loc => _groupBlock(loc, groups[loc], false)).join('');
+
+  } else {
+    // Group by item name (merge across locations)
+    const groups = {};
+    for (const item of visible) {
+      const key = item.type_name;
+      if (!groups[key]) groups[key] = {type_id: item.type_id, type_name: item.type_name, quantity: 0, est_value: 0, locations: new Set()};
+      groups[key].quantity  += item.quantity;
+      groups[key].est_value += item.est_value;
+      groups[key].locations.add(item.location_name);
+    }
+    const items = Object.values(groups).map(g => ({
+      ...g, location_name: [...g.locations].join(', ')
+    }));
+    const sorted = _sortItems(items);
+    const total  = sorted.reduce((s, i) => s + i.est_value, 0);
+    const rows   = sorted.map(i => _itemRow(i, i.location_name)).join('');
+    container.innerHTML = `<div class="overflow-x-auto">
+      <table class="w-full">
+        <thead><tr class="text-dune-muted text-xs">
+          <th class="text-left py-1 pr-3 font-400">Item</th>
+          <th class="text-left py-1 px-2 font-400">Locations</th>
+          <th class="text-right py-1 px-2 font-400">Total Qty</th>
+          <th class="text-right py-1 px-2 font-400">Est. Value</th>
+          <th class="text-right py-1 pl-2 font-400">Track</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="text-right text-xs font-mono text-dune-muted mt-2">${sorted.length} unique items — <span class="sand">${fmtIsk(total)} ISK total</span></p>
+    </div>`;
   }
-  tbody.innerHTML = Object.values(byType).map(r => {
-    const tracked = _trackedItems.has(r.type_id);
-    return `
-      <tr class="row border-b border-dune-border border-opacity-40" id="asset-row-${r.type_id}">
-        <td class="py-1.5 pr-3 text-dune-text truncate max-w-48" title="${r.type_name}">${r.type_name}</td>
-        <td class="text-right py-1.5 px-2">${r.qty.toLocaleString()}</td>
-        <td class="text-right py-1.5 px-2 text-dune-muted">${fmtIsk(r.price)}</td>
-        <td class="text-right py-1.5 pl-2">
-          <button onclick="toggleTrack(${r.type_id}, '${r.type_name.replace(/'/g,"\\'")}', ${r.price})"
-                  id="track-btn-${r.type_id}"
-                  class="text-xs px-2 py-0.5 rounded-sm border transition-colors ${tracked ? 'border-dune-sand sand' : 'border-dune-border text-dune-muted hover:border-dune-sand hover:sand'}">
-            ${tracked ? 'Tracked' : 'Track'}
-          </button>
-        </td>
-      </tr>
-    `;
-  }).join('');
+}
+
+async function loadInventory() {
+  const btn = document.getElementById('invRefreshBtn');
+  const container = document.getElementById('inventoryBody');
+  btn.textContent = 'Loading…';
+  btn.disabled = true;
+  container.innerHTML = '<p class="text-xs font-mono text-dune-muted py-4 text-center">Fetching assets from ESI…</p>';
+  try {
+    const resp = await fetch(`/api/c/${CID}/inventory`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    _invData = data;
+    // Flatten to array with location_name baked in
+    _invFlat = [];
+    for (const [loc, items] of Object.entries(data.by_location)) {
+      for (const item of items) {
+        _invFlat.push({...item, location_name: loc});
+      }
+    }
+    applyInventoryView();
+  } catch (e) {
+    container.innerHTML = `<p class="text-xs font-mono text-red-400 py-4 text-center">Failed to load inventory: ${e.message}</p>`;
+  } finally {
+    btn.textContent = 'Refresh';
+    btn.disabled = false;
+  }
 }
 
 function buildProfitChart(pnl) {
@@ -536,7 +727,6 @@ async function loadData() {
     sortPnl(_pnlSort);
     renderCancelled(data.cancelled_orders || []);
     renderActiveOrders(data.active_orders || []);
-    renderAssets(data.active_orders || []);
     buildProfitChart(_pnlData);
 
     // Load history for already-tracked items
