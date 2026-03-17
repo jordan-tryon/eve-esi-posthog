@@ -643,7 +643,8 @@ async def api_track_item(request: Request, character_id: int):
     body = await request.json()
     type_id   = int(body["type_id"])
     region_id = int(body.get("region_id", 10000002))
-    store.add_tracked_item(character_id, type_id, region_id)
+    type_name = body.get("type_name")
+    store.add_tracked_item(character_id, type_id, region_id, type_name=type_name)
 
     # Fetch market history and return it
     esi = None

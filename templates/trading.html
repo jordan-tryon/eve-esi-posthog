@@ -670,7 +670,7 @@ async function toggleTrack(typeId, typeName, currentPrice) {
     const resp = await fetch(`/api/c/${CID}/track-item`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({type_id: typeId, region_id: 10000002})
+      body: JSON.stringify({type_id: typeId, type_name: typeName, region_id: 10000002})
     });
     const data = await resp.json();
     _trackedItems.add(typeId);

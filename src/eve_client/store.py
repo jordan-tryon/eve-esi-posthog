@@ -157,6 +157,7 @@ class SnapshotStore:
             CREATE TABLE IF NOT EXISTS tracked_items (
                 character_id INTEGER NOT NULL,
                 type_id      INTEGER NOT NULL,
+                type_name    TEXT,
                 region_id    INTEGER NOT NULL DEFAULT 10000002,
                 added_at     TEXT NOT NULL,
                 PRIMARY KEY (character_id, type_id, region_id)
@@ -182,6 +183,10 @@ class SnapshotStore:
         skill_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(skills)").fetchall()}
         if "group_name" not in skill_cols:
             self.conn.execute("ALTER TABLE skills ADD COLUMN group_name TEXT")
+
+        tracked_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(tracked_items)").fetchall()}
+        if "type_name" not in tracked_cols:
+            self.conn.execute("ALTER TABLE tracked_items ADD COLUMN type_name TEXT")
 
         self.conn.commit()
 
@@ -554,11 +559,12 @@ class SnapshotStore:
 
     # --- Tracked items ---
 
-    def add_tracked_item(self, character_id: int, type_id: int, region_id: int = 10000002):
+    def add_tracked_item(self, character_id: int, type_id: int, region_id: int = 10000002, type_name: str | None = None):
         self.conn.execute(
-            """INSERT OR IGNORE INTO tracked_items (character_id, type_id, region_id, added_at)
-               VALUES (?, ?, ?, ?)""",
-            (character_id, type_id, region_id, _utcnow()),
+            """INSERT INTO tracked_items (character_id, type_id, type_name, region_id, added_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(character_id, type_id, region_id) DO UPDATE SET type_name=excluded.type_name""",
+            (character_id, type_id, type_name, region_id, _utcnow()),
         )
         self.conn.commit()
 
