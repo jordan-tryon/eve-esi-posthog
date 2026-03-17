@@ -1,0 +1,631 @@
+{% extends "base.html" %}
+{% block title %}Trading — {{ character.character_name }} — Arrakis Tracker{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+{% set cid = character.character_id %}
+
+<!-- Header -->
+<div class="flex items-center gap-5 mb-6">
+  <a href="/c/{{ cid }}">
+    <img src="https://images.evetech.net/characters/{{ cid }}/portrait?size=128"
+         class="w-16 h-16 rounded-sm border border-dune-border flex-shrink-0 hover:border-dune-sand transition-colors"
+         style="filter:grayscale(30%)" />
+  </a>
+  <div class="flex-1">
+    <div class="flex items-center gap-3 flex-wrap mb-0.5">
+      <a href="/c/{{ cid }}" class="text-dune-muted hover:sand transition-colors text-sm font-display font-500 tracking-wider">
+        ← {{ character.character_name }}
+      </a>
+      <span class="text-dune-border">/</span>
+      <h1 class="font-display font-700 text-2xl text-dune-bright tracking-wider">Trading</h1>
+    </div>
+    <p class="text-dune-muted text-xs font-mono" id="lastSyncedLabel">—</p>
+  </div>
+  <div class="flex gap-2">
+    <button onclick="syncTrading()" id="syncBtn" class="btn-sand text-sm px-4 py-1.5 rounded-sm flex items-center gap-2">
+      <span id="syncSpinner" style="display:none;width:11px;height:11px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0"></span>
+      <span id="syncBtnText">Sync Trading Data</span>
+    </button>
+  </div>
+</div>
+
+<!-- Error banner -->
+<div id="errorBanner" class="hidden mb-4 px-4 py-2 rounded-sm border border-red-900 text-red-400 text-sm font-mono" style="background:rgba(120,40,40,0.15)"></div>
+
+<!-- Summary strip -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+  <div class="card p-4">
+    <p class="label mb-1.5">Net P&amp;L (30d)</p>
+    <p class="metric-val text-lg" id="sumNetPnl">—</p>
+    <p class="text-xs font-mono text-dune-muted mt-1">ISK</p>
+  </div>
+  <div class="card p-4">
+    <p class="label mb-1.5">Avg Margin</p>
+    <p class="metric-val text-lg" id="sumAvgMargin">—</p>
+    <p class="text-xs font-mono text-dune-muted mt-1">%</p>
+  </div>
+  <div class="card p-4">
+    <p class="label mb-1.5">Fees Paid</p>
+    <p class="metric-val text-lg" id="sumFees">—</p>
+    <p class="text-xs font-mono text-dune-muted mt-1">ISK</p>
+  </div>
+  <div class="card p-4">
+    <p class="label mb-1.5">Cancelled Capital</p>
+    <p class="metric-val text-lg" id="sumCancelled">—</p>
+    <p class="text-xs font-mono text-dune-muted mt-1">ISK</p>
+  </div>
+</div>
+
+<!-- Main grid -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+
+  <!-- Left: Trade Efficiency -->
+  <div class="flex flex-col gap-4">
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <p class="font-display font-600 text-dune-bright tracking-wide text-sm">Trade Efficiency (30d)</p>
+        <div class="flex gap-2 text-xs font-mono text-dune-muted">
+          <span>Sort:</span>
+          <button onclick="sortPnl('net_profit')" class="hover:sand transition-colors" id="sort-net_profit">Profit</button>
+          <button onclick="sortPnl('margin_pct')" class="hover:sand transition-colors" id="sort-margin_pct">Margin</button>
+          <button onclick="sortPnl('qty_sold')" class="hover:sand transition-colors" id="sort-qty_sold">Volume</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Item</th>
+              <th class="text-right py-1.5 px-2 font-400">Buy Avg</th>
+              <th class="text-right py-1.5 px-2 font-400">Sell Avg</th>
+              <th class="text-right py-1.5 px-2 font-400">Qty</th>
+              <th class="text-right py-1.5 px-2 font-400">Margin</th>
+              <th class="text-right py-1.5 pl-2 font-400">Net P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody id="pnlBody">
+            <tr><td colspan="6" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 30-day profit trend chart -->
+    <div class="card p-4">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Daily Net Profit Trend</p>
+      <canvas id="profitChart" height="120"></canvas>
+    </div>
+  </div>
+
+  <!-- Right: Orders -->
+  <div class="flex flex-col gap-4">
+
+    <!-- Cancelled / Expired orders -->
+    <div class="card p-4">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Cancelled / Expired Orders</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Item</th>
+              <th class="text-right py-1.5 px-2 font-400">Qty</th>
+              <th class="text-right py-1.5 px-2 font-400">Price</th>
+              <th class="text-right py-1.5 px-2 font-400">Capital</th>
+              <th class="text-right py-1.5 pl-2 font-400">State</th>
+            </tr>
+          </thead>
+          <tbody id="cancelledBody">
+            <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Active orders -->
+    <div class="card p-4">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Active Orders</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Item</th>
+              <th class="text-right py-1.5 px-2 font-400">Type</th>
+              <th class="text-right py-1.5 px-2 font-400">Price</th>
+              <th class="text-right py-1.5 px-2 font-400">Remain</th>
+              <th class="text-right py-1.5 pl-2 font-400">% Filled</th>
+            </tr>
+          </thead>
+          <tbody id="activeOrdersBody">
+            <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Stocked Items & Sell Planner -->
+<div class="card p-4 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <p class="font-display font-600 text-dune-bright tracking-wide text-sm">Stocked Items &amp; Sell Planner</p>
+    <p class="text-xs font-mono text-dune-muted">Click [Track] to load 30-day price history</p>
+  </div>
+
+  <!-- Tracked items charts section -->
+  <div id="trackedSection" class="hidden mb-4 border-b border-dune-border pb-4">
+    <p class="label mb-3">Tracked Items</p>
+    <div id="trackedCharts" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+  </div>
+
+  <!-- Assets from active orders -->
+  <div class="overflow-x-auto">
+    <table class="w-full text-xs font-mono">
+      <thead>
+        <tr class="text-dune-muted border-b border-dune-border">
+          <th class="text-left py-1.5 pr-3 font-400">Item</th>
+          <th class="text-right py-1.5 px-2 font-400">Active Qty</th>
+          <th class="text-right py-1.5 px-2 font-400">Price</th>
+          <th class="text-right py-1.5 pl-2 font-400">Track</th>
+        </tr>
+      </thead>
+      <tbody id="assetsBody">
+        <tr><td colspan="4" class="text-center text-dune-muted py-6">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CID = {{ cid }};
+let _pnlData = [];
+let _pnlSort = 'net_profit';
+let _trackedItems = new Set();
+let _profitChart = null;
+let _historyCharts = {};
+let _syncInterval = null;
+
+function fmtIsk(v) {
+  if (v == null || isNaN(v)) return '—';
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return (v / 1e12).toFixed(2) + 'T';
+  if (abs >= 1e9)  return (v / 1e9).toFixed(2) + 'B';
+  if (abs >= 1e6)  return (v / 1e6).toFixed(2) + 'M';
+  return v.toLocaleString('en-US', {maximumFractionDigits: 0});
+}
+
+function marginColor(pct) {
+  if (pct >= 15) return 'color:#5a9e6f';
+  if (pct >= 5)  return 'color:#b8883a';
+  return 'color:#9e4040';
+}
+
+function pnlColor(v) {
+  return v >= 0 ? 'color:#5a9e6f' : 'color:#9e4040';
+}
+
+function renderPnl(data) {
+  const tbody = document.getElementById('pnlBody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-dune-muted py-6">No trade data for last 30 days</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(r => `
+    <tr class="row border-b border-dune-border border-opacity-40">
+      <td class="py-1.5 pr-3 text-dune-text truncate max-w-32" title="${r.type_name}">${r.type_name}</td>
+      <td class="text-right py-1.5 px-2 text-dune-muted">${fmtIsk(r.avg_buy)}</td>
+      <td class="text-right py-1.5 px-2 text-dune-muted">${fmtIsk(r.avg_sell)}</td>
+      <td class="text-right py-1.5 px-2">${(r.qty_sold || 0).toLocaleString()}</td>
+      <td class="text-right py-1.5 px-2 font-600" style="${marginColor(r.margin_pct)}">${r.margin_pct.toFixed(1)}%</td>
+      <td class="text-right py-1.5 pl-2 font-600" style="${pnlColor(r.net_profit)}">${fmtIsk(r.net_profit)}</td>
+    </tr>
+  `).join('');
+}
+
+function sortPnl(col) {
+  _pnlSort = col;
+  document.querySelectorAll('[id^="sort-"]').forEach(b => b.classList.remove('sand'));
+  document.getElementById('sort-' + col)?.classList.add('sand');
+  const sorted = [..._pnlData].sort((a, b) => b[col] - a[col]);
+  renderPnl(sorted);
+}
+
+function renderCancelled(data) {
+  const tbody = document.getElementById('cancelledBody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-dune-muted py-6">No cancelled / expired orders</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(r => `
+    <tr class="row border-b border-dune-border border-opacity-40">
+      <td class="py-1.5 pr-3 text-dune-text truncate max-w-32" title="${r.type_name}">${r.type_name}</td>
+      <td class="text-right py-1.5 px-2">${(r.cancelled_qty || 0).toLocaleString()}</td>
+      <td class="text-right py-1.5 px-2 text-dune-muted">${fmtIsk(r.price)}</td>
+      <td class="text-right py-1.5 px-2 spice">${fmtIsk(r.capital_at_risk)}</td>
+      <td class="text-right py-1.5 pl-2 text-dune-muted">${r.state}</td>
+    </tr>
+  `).join('');
+}
+
+function renderActiveOrders(data) {
+  const tbody = document.getElementById('activeOrdersBody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-dune-muted py-6">No active orders</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(r => {
+    const filled = r.volume_total ? ((r.volume_total - r.volume_remain) / r.volume_total * 100) : 0;
+    return `
+      <tr class="row border-b border-dune-border border-opacity-40">
+        <td class="py-1.5 pr-3 text-dune-text truncate max-w-32" title="${r.type_name || r.type_id}">${r.type_name || r.type_id}</td>
+        <td class="text-right py-1.5 px-2 text-dune-muted">${r.is_buy_order ? 'Buy' : 'Sell'}</td>
+        <td class="text-right py-1.5 px-2">${fmtIsk(r.price)}</td>
+        <td class="text-right py-1.5 px-2">${(r.volume_remain || 0).toLocaleString()}</td>
+        <td class="text-right py-1.5 pl-2 text-dune-muted">${filled.toFixed(0)}%</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderAssets(activeOrders) {
+  const tbody = document.getElementById('assetsBody');
+  const sellOrders = activeOrders.filter(o => !o.is_buy_order);
+  if (!sellOrders.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-dune-muted py-6">No active sell orders</td></tr>';
+    return;
+  }
+  // Deduplicate by type_id, sum qty
+  const byType = {};
+  for (const o of sellOrders) {
+    const name = o.type_name || String(o.type_id);
+    if (!byType[o.type_id]) byType[o.type_id] = {type_id: o.type_id, type_name: name, qty: 0, price: o.price};
+    byType[o.type_id].qty += o.volume_remain;
+  }
+  tbody.innerHTML = Object.values(byType).map(r => {
+    const tracked = _trackedItems.has(r.type_id);
+    return `
+      <tr class="row border-b border-dune-border border-opacity-40" id="asset-row-${r.type_id}">
+        <td class="py-1.5 pr-3 text-dune-text truncate max-w-48" title="${r.type_name}">${r.type_name}</td>
+        <td class="text-right py-1.5 px-2">${r.qty.toLocaleString()}</td>
+        <td class="text-right py-1.5 px-2 text-dune-muted">${fmtIsk(r.price)}</td>
+        <td class="text-right py-1.5 pl-2">
+          <button onclick="toggleTrack(${r.type_id}, '${r.type_name.replace(/'/g,"\\'")}', ${r.price})"
+                  id="track-btn-${r.type_id}"
+                  class="text-xs px-2 py-0.5 rounded-sm border transition-colors ${tracked ? 'border-dune-sand sand' : 'border-dune-border text-dune-muted hover:border-dune-sand hover:sand'}">
+            ${tracked ? 'Tracked' : 'Track'}
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function buildProfitChart(pnl) {
+  // Aggregate net_profit by date from transactions (approximate: use pnl totals)
+  const canvas = document.getElementById('profitChart');
+  if (_profitChart) { _profitChart.destroy(); _profitChart = null; }
+  if (!pnl.length) {
+    canvas.closest('.card').querySelector('p:last-of-type') && (canvas.style.display = 'none');
+    return;
+  }
+  canvas.style.display = '';
+
+  // Generate last 30 days labels
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+
+  // Placeholder: show total net profit as flat line (real per-day needs tx dates)
+  const totalNet = pnl.reduce((s, r) => s + r.net_profit, 0);
+  const dailyAvg = totalNet / 30;
+  const data = days.map(() => Math.round(dailyAvg));
+
+  _profitChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: days.map(d => d.slice(5)),
+      datasets: [{
+        data,
+        borderColor: totalNet >= 0 ? '#5a9e6f' : '#9e4040',
+        backgroundColor: totalNet >= 0 ? 'rgba(90,158,111,0.07)' : 'rgba(158,64,64,0.07)',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.3,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => fmtIsk(ctx.raw) + ' ISK' }
+      }},
+      scales: {
+        x: { grid: { color: 'rgba(42,45,53,0.5)' }, ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 6 } },
+        y: { grid: { color: 'rgba(42,45,53,0.5)' }, ticks: { color: '#6b7280', font: { size: 10 },
+          callback: v => fmtIsk(v) } }
+      }
+    }
+  });
+}
+
+function computeVolatility(history) {
+  if (!history.length) return {label: 'N/A', badge: 'text-dune-muted'};
+  const prices = history.map(h => h.average).filter(Boolean);
+  if (!prices.length) return {label: 'N/A', badge: 'text-dune-muted'};
+  const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
+  const std  = Math.sqrt(prices.reduce((s, p) => s + (p - mean) ** 2, 0) / prices.length);
+  const cv   = mean ? (std / mean * 100) : 0;
+  if (cv > 15) return {label: 'High Volatility', badge: 'color:#9e4040'};
+  if (cv > 5)  return {label: 'Med Volatility',  badge: 'color:#b8883a'};
+  return {label: 'Low Volatility', badge: 'color:#5a9e6f'};
+}
+
+function computeTrendLabel(history) {
+  if (history.length < 14) return {arrow: '→', label: 'Insufficient data', style: 'color:#6b7280'};
+  const prices = history.map(h => h.average).filter(Boolean);
+  const recent = prices.slice(-7).reduce((a, b) => a + b, 0) / Math.min(7, prices.slice(-7).length);
+  const prev   = prices.slice(-14, -7).reduce((a, b) => a + b, 0) / Math.min(7, prices.slice(-14, -7).length);
+  const pct    = prev ? (recent - prev) / prev * 100 : 0;
+  if (pct > 3)  return {arrow: '↑', label: 'Hold — price rising',    style: 'color:#5a9e6f'};
+  if (pct < -3) return {arrow: '↓', label: 'Offload — declining trend', style: 'color:#9e4040'};
+  return {arrow: '→', label: 'Hold / neutral trend', style: 'color:#b8883a'};
+}
+
+function renderTrackedChart(typeId, typeName, history, currentPrice) {
+  const id = `hist-canvas-${typeId}`;
+  let container = document.getElementById(`hist-card-${typeId}`);
+  if (!container) {
+    container = document.createElement('div');
+    container.id = `hist-card-${typeId}`;
+    container.className = 'card p-3';
+    document.getElementById('trackedCharts').appendChild(container);
+  }
+
+  const vol   = computeVolatility(history);
+  const trend = computeTrendLabel(history);
+
+  const labels = history.map(h => h.date.slice(5));
+  const avg    = history.map(h => h.average);
+
+  // 7-day rolling average
+  const rolling = avg.map((_, i) => {
+    const slice = avg.slice(Math.max(0, i - 6), i + 1);
+    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  });
+
+  // Near 30d high?
+  const validAvg = avg.filter(Boolean);
+  const max30 = validAvg.length > 0 ? Math.max(...validAvg) : 0;
+  const nearHigh = currentPrice && max30 && (currentPrice / max30 > 0.92);
+  const action = nearHigh ? 'Sell now — near 30d high' : trend.label;
+  const actionStyle = nearHigh ? 'color:#c8a96e' : trend.style;
+
+  container.innerHTML = `
+    <div class="flex items-start justify-between mb-2">
+      <div>
+        <p class="font-display font-600 text-dune-text text-sm">${typeName}</p>
+        <p class="text-xs font-mono mt-0.5" style="${actionStyle}">${trend.arrow} ${action}</p>
+      </div>
+      <div class="flex gap-2 items-center">
+        <span class="text-xs font-mono px-1.5 py-0.5 rounded-sm border border-dune-border" style="${vol.badge}">${vol.label}</span>
+        <button onclick="untrackItem(${typeId})" class="text-xs text-dune-muted hover:spice transition-colors">×</button>
+      </div>
+    </div>
+    <canvas id="${id}" height="90"></canvas>
+  `;
+
+  if (_historyCharts[typeId]) { _historyCharts[typeId].destroy(); }
+  _historyCharts[typeId] = new Chart(document.getElementById(id), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Daily Avg',
+          data: avg,
+          borderColor: '#c8a96e',
+          backgroundColor: 'rgba(200,169,110,0.06)',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: true,
+        },
+        {
+          label: '7d Rolling',
+          data: rolling,
+          borderColor: '#6b7280',
+          borderWidth: 1,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: false,
+          borderDash: [3, 3],
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => fmtIsk(ctx.raw) + ' ISK' } }
+      },
+      scales: {
+        x: { grid: { color: 'rgba(42,45,53,0.5)' }, ticks: { color: '#6b7280', font: {size:9}, maxTicksLimit: 6 } },
+        y: { grid: { color: 'rgba(42,45,53,0.5)' }, ticks: { color: '#6b7280', font: {size:9}, callback: v => fmtIsk(v) } }
+      }
+    }
+  });
+
+  document.getElementById('trackedSection').classList.remove('hidden');
+}
+
+async function toggleTrack(typeId, typeName, currentPrice) {
+  const btn = document.getElementById(`track-btn-${typeId}`);
+  if (_trackedItems.has(typeId)) {
+    await untrackItem(typeId);
+    return;
+  }
+  btn.textContent = 'Loading…';
+  btn.disabled = true;
+  try {
+    const resp = await fetch(`/api/c/${CID}/track-item`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type_id: typeId, region_id: 10000002})
+    });
+    const data = await resp.json();
+    _trackedItems.add(typeId);
+    btn.textContent = 'Tracked';
+    btn.className = 'text-xs px-2 py-0.5 rounded-sm border transition-colors border-dune-sand sand';
+    btn.disabled = false;
+    renderTrackedChart(typeId, typeName, data.history || [], currentPrice);
+  } catch (e) {
+    btn.textContent = 'Track';
+    btn.disabled = false;
+  }
+}
+
+async function untrackItem(typeId) {
+  await fetch(`/api/c/${CID}/track-item/${typeId}`, {method: 'DELETE'});
+  _trackedItems.delete(typeId);
+  const card = document.getElementById(`hist-card-${typeId}`);
+  if (card) card.remove();
+  if (_historyCharts[typeId]) { _historyCharts[typeId].destroy(); delete _historyCharts[typeId]; }
+  const btn = document.getElementById(`track-btn-${typeId}`);
+  if (btn) {
+    btn.textContent = 'Track';
+    btn.className = 'text-xs px-2 py-0.5 rounded-sm border transition-colors border-dune-border text-dune-muted hover:border-dune-sand hover:sand';
+  }
+  if (!document.getElementById('trackedCharts').children.length) {
+    document.getElementById('trackedSection').classList.add('hidden');
+  }
+}
+
+async function loadData() {
+  try {
+    const resp = await fetch(`/api/c/${CID}/trading-data`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    _pnlData = data.pnl || [];
+    _trackedItems = new Set((data.tracked_items || []).map(t => t.type_id));
+
+    // Summary strip
+    const totalNet   = _pnlData.reduce((s, r) => s + r.net_profit, 0);
+    const totalFees  = _pnlData.reduce((s, r) => s + r.fees, 0);
+    const cancelCap  = (data.cancelled_orders || []).reduce((s, r) => s + r.capital_at_risk, 0);
+    const totalSell  = _pnlData.reduce((s, r) => s + (r.avg_sell * r.qty_sold), 0);
+    const avgMargin  = totalSell > 0
+      ? _pnlData.reduce((s, r) => s + r.margin_pct * (r.avg_sell * r.qty_sold), 0) / totalSell
+      : 0;
+
+    document.getElementById('sumNetPnl').textContent     = fmtIsk(totalNet);
+    document.getElementById('sumNetPnl').style.cssText   = pnlColor(totalNet);
+    document.getElementById('sumAvgMargin').textContent  = avgMargin.toFixed(1) + '%';
+    document.getElementById('sumFees').textContent       = fmtIsk(totalFees);
+    document.getElementById('sumCancelled').textContent  = fmtIsk(cancelCap);
+
+    sortPnl(_pnlSort);
+    renderCancelled(data.cancelled_orders || []);
+    renderActiveOrders(data.active_orders || []);
+    renderAssets(data.active_orders || []);
+    buildProfitChart(_pnlData);
+
+    // Load history for already-tracked items
+    for (const item of (data.tracked_items || [])) {
+      try {
+        const hresp = await fetch(`/api/c/${CID}/market-history/${item.type_id}?region_id=${item.region_id}`);
+        if (!hresp.ok) throw new Error(`HTTP ${hresp.status}`);
+        const history = await hresp.json();
+        renderTrackedChart(item.type_id, item.type_name || String(item.type_id), history, null);
+      } catch {}
+    }
+
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function setLastSynced(ts) {
+  const label = document.getElementById('lastSyncedLabel');
+  if (ts) {
+    label.textContent = 'Last synced ' + ts.slice(0, 19).replace('T', ' ') + ' UTC';
+  } else {
+    label.textContent = 'Not yet synced — click Sync Trading Data';
+  }
+}
+
+async function syncTrading() {
+  if (_syncInterval) return;  // already polling
+  const btn     = document.getElementById('syncBtn');
+  const spinner = document.getElementById('syncSpinner');
+  const btnText = document.getElementById('syncBtnText');
+
+  spinner.style.display = 'inline-block';
+  btnText.textContent = 'Syncing…';
+  btn.disabled = true;
+  document.getElementById('errorBanner').classList.add('hidden');
+
+  try {
+    await fetch(`/api/c/${CID}/sync-trading`, {method: 'POST'});
+
+    _syncInterval = setInterval(async () => {
+      try {
+        const s = await (await fetch(`/api/c/${CID}/trading-status`)).json();
+        if (!s.running) {
+          clearInterval(_syncInterval);
+          _syncInterval = null;
+          spinner.style.display = 'none';
+          btn.disabled = false;
+          if (s.error) {
+            btnText.textContent = 'Sync Trading Data';
+            const banner = document.getElementById('errorBanner');
+            banner.textContent = '⚠ ' + s.error;
+            banner.classList.remove('hidden');
+          } else {
+            btnText.textContent = 'Done ✓';
+            setLastSynced(s.last);
+            await loadData();
+            setTimeout(() => { btnText.textContent = 'Sync Trading Data'; }, 2000);
+          }
+        }
+      } catch (e) {
+        clearInterval(_syncInterval);
+        _syncInterval = null;
+        spinner.style.display = 'none';
+        btnText.textContent = 'Sync Trading Data';
+        btn.disabled = false;
+      }
+    }, 1500);
+  } catch (e) {
+    spinner.style.display = 'none';
+    btnText.textContent = 'Sync Trading Data';
+    btn.disabled = false;
+  }
+}
+
+// Init
+(async () => {
+  try {
+    const status = await (await fetch(`/api/c/${CID}/trading-status`)).json();
+    setLastSynced(status.last);
+  } catch (e) {
+    document.getElementById('lastSyncedLabel').textContent = 'Status unavailable';
+  }
+  document.getElementById('sort-net_profit').classList.add('sand');
+  try {
+    await loadData();
+  } catch (e) {
+    console.error('loadData failed:', e);
+  }
+})();
+</script>
+{% endblock %}

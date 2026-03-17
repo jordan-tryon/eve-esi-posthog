@@ -126,3 +126,32 @@ class ESIClient:
                 break
             page += 1
         return all_assets
+
+    def get_wallet_transactions(self, character_id: int, from_id: int | None = None) -> list:
+        params = {}
+        if from_id is not None:
+            params["from_id"] = from_id
+        return self._get(f"/characters/{character_id}/wallet/transactions/", params=params)
+
+    def get_wallet_transactions_all(self, character_id: int, since_id: int | None = None) -> list:
+        """Cursor-paginate until we reach since_id or exhaust results."""
+        results, from_id = [], None
+        while True:
+            page = self.get_wallet_transactions(character_id, from_id)
+            if not page:
+                break
+            for entry in page:
+                if since_id is not None and entry["transaction_id"] <= since_id:
+                    return results
+                results.append(entry)
+            from_id = min(e["transaction_id"] for e in page) - 1
+        return results
+
+    def get_character_orders(self, character_id: int) -> list:
+        return self._get(f"/characters/{character_id}/orders/")
+
+    def get_character_orders_history(self, character_id: int) -> list:
+        return self._get(f"/characters/{character_id}/orders/history/")
+
+    def get_market_history(self, region_id: int, type_id: int) -> list:
+        return self._get(f"/markets/{region_id}/history/", params={"type_id": type_id})

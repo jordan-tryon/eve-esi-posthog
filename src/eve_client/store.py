@@ -112,6 +112,55 @@ class SnapshotStore:
                 updated_at    TEXT NOT NULL,
                 PRIMARY KEY (character_id, skill_id)
             );
+
+            CREATE TABLE IF NOT EXISTS wallet_transactions (
+                transaction_id INTEGER PRIMARY KEY,
+                character_id   INTEGER NOT NULL,
+                date           TEXT NOT NULL,
+                type_id        INTEGER NOT NULL,
+                type_name      TEXT,
+                quantity       INTEGER NOT NULL,
+                unit_price     REAL NOT NULL,
+                is_buy         INTEGER NOT NULL,
+                location_id    INTEGER,
+                journal_ref_id INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS market_orders (
+                order_id       INTEGER PRIMARY KEY,
+                character_id   INTEGER NOT NULL,
+                type_id        INTEGER NOT NULL,
+                type_name      TEXT,
+                region_id      INTEGER,
+                location_id    INTEGER,
+                is_buy_order   INTEGER NOT NULL,
+                price          REAL NOT NULL,
+                volume_remain  INTEGER NOT NULL,
+                volume_total   INTEGER NOT NULL,
+                issued         TEXT,
+                state          TEXT NOT NULL,
+                synced_at      TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS market_history (
+                type_id     INTEGER NOT NULL,
+                region_id   INTEGER NOT NULL,
+                date        TEXT NOT NULL,
+                average     REAL,
+                highest     REAL,
+                lowest      REAL,
+                volume      INTEGER,
+                order_count INTEGER,
+                PRIMARY KEY (type_id, region_id, date)
+            );
+
+            CREATE TABLE IF NOT EXISTS tracked_items (
+                character_id INTEGER NOT NULL,
+                type_id      INTEGER NOT NULL,
+                region_id    INTEGER NOT NULL DEFAULT 10000002,
+                added_at     TEXT NOT NULL,
+                PRIMARY KEY (character_id, type_id, region_id)
+            );
         """)
         self.conn.commit()
         self._migrate()
@@ -390,5 +439,145 @@ class SnapshotStore:
         rows = self.conn.execute(
             "SELECT * FROM sessions WHERE character_id=? ORDER BY started_at DESC LIMIT ?",
             (character_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- Wallet transactions ---
+
+    def save_transactions(self, entries: list[dict]):
+        for e in entries:
+            self.conn.execute(
+                """INSERT OR REPLACE INTO wallet_transactions
+                   (transaction_id, character_id, date, type_id, type_name,
+                    quantity, unit_price, is_buy, location_id, journal_ref_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    e["transaction_id"],
+                    e["character_id"],
+                    e["date"],
+                    e["type_id"],
+                    e.get("type_name"),
+                    e["quantity"],
+                    e["unit_price"],
+                    1 if e.get("is_buy") else 0,
+                    e.get("location_id"),
+                    e.get("journal_ref_id"),
+                ),
+            )
+        self.conn.commit()
+
+    def get_transactions(self, character_id: int, days: int = 30) -> list[dict]:
+        from datetime import timedelta
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        rows = self.conn.execute(
+            """SELECT * FROM wallet_transactions
+               WHERE character_id=? AND date >= ?
+               ORDER BY date DESC""",
+            (character_id, since),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_latest_transaction_id(self, character_id: int) -> int | None:
+        row = self.conn.execute(
+            "SELECT MAX(transaction_id) FROM wallet_transactions WHERE character_id=?",
+            (character_id,),
+        ).fetchone()
+        return row[0] if row else None
+
+    # --- Market orders ---
+
+    def save_orders(self, orders: list[dict]):
+        now = _utcnow()
+        for o in orders:
+            self.conn.execute(
+                """INSERT OR REPLACE INTO market_orders
+                   (order_id, character_id, type_id, type_name, region_id,
+                    location_id, is_buy_order, price, volume_remain, volume_total,
+                    issued, state, synced_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    o["order_id"],
+                    o["character_id"],
+                    o["type_id"],
+                    o.get("type_name"),
+                    o.get("region_id"),
+                    o.get("location_id"),
+                    1 if o.get("is_buy_order") else 0,
+                    o["price"],
+                    o["volume_remain"],
+                    o["volume_total"],
+                    o.get("issued"),
+                    o["state"],
+                    now,
+                ),
+            )
+        self.conn.commit()
+
+    def get_orders(self, character_id: int) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM market_orders WHERE character_id=? ORDER BY issued DESC",
+            (character_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- Market history ---
+
+    def save_market_history(self, rows: list[dict]):
+        for r in rows:
+            self.conn.execute(
+                """INSERT OR IGNORE INTO market_history
+                   (type_id, region_id, date, average, highest, lowest, volume, order_count)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    r["type_id"],
+                    r["region_id"],
+                    r["date"],
+                    r.get("average"),
+                    r.get("highest"),
+                    r.get("lowest"),
+                    r.get("volume"),
+                    r.get("order_count"),
+                ),
+            )
+        self.conn.commit()
+
+    def get_market_history(self, type_id: int, region_id: int, days: int = 30) -> list[dict]:
+        from datetime import timedelta
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+        rows = self.conn.execute(
+            """SELECT * FROM market_history
+               WHERE type_id=? AND region_id=? AND date >= ?
+               ORDER BY date ASC""",
+            (type_id, region_id, since),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- Tracked items ---
+
+    def add_tracked_item(self, character_id: int, type_id: int, region_id: int = 10000002):
+        self.conn.execute(
+            """INSERT OR IGNORE INTO tracked_items (character_id, type_id, region_id, added_at)
+               VALUES (?, ?, ?, ?)""",
+            (character_id, type_id, region_id, _utcnow()),
+        )
+        self.conn.commit()
+
+    def remove_tracked_item(self, character_id: int, type_id: int, region_id: int | None = None):
+        if region_id is not None:
+            self.conn.execute(
+                "DELETE FROM tracked_items WHERE character_id=? AND type_id=? AND region_id=?",
+                (character_id, type_id, region_id),
+            )
+        else:
+            self.conn.execute(
+                "DELETE FROM tracked_items WHERE character_id=? AND type_id=?",
+                (character_id, type_id),
+            )
+        self.conn.commit()
+
+    def get_tracked_items(self, character_id: int) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM tracked_items WHERE character_id=? ORDER BY added_at DESC",
+            (character_id,),
         ).fetchall()
         return [dict(r) for r in rows]

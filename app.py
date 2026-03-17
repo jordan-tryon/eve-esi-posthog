@@ -20,7 +20,9 @@ from src.eve_client.analytics import Analytics
 from src.eve_client.auth import EveAuth
 from src.eve_client.esi import ESIClient
 from src.eve_client.hourly_pipeline import run_hourly_snapshot
+from src.eve_client.metrics import compute_trade_pnl, compute_cancelled_order_losses
 from src.eve_client.store import SnapshotStore
+from src.eve_client.trading_pipeline import run_trading_sync
 
 # ── Globals ───────────────────────────────────────────────────────────────────
 
@@ -37,8 +39,9 @@ analytics = Analytics(
     host=os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com"),
 )
 
-scheduler  = BackgroundScheduler()
-_sync_jobs: dict[int, dict] = {}   # character_id → {running, last, error}
+scheduler          = BackgroundScheduler()
+_sync_jobs:         dict[int, dict] = {}   # character_id → {running, last, error}
+_trading_sync_jobs: dict[int, dict] = {}   # character_id → {running, last, error}
 
 
 # ── Scheduler helpers ─────────────────────────────────────────────────────────
@@ -49,7 +52,19 @@ def _make_sync_fn(character_id: int):
         _sync_jobs[character_id]["error"] = None
         try:
             run_hourly_snapshot(character_id, auth, analytics, store)
-            _sync_jobs[character_id]["last"] = datetime.now(timezone.utc).isoformat()
+            # Trading sync: full backfill on first run, incremental thereafter
+            token = auth.get_valid_token(character_id)
+            esi = ESIClient(access_token=token)
+            try:
+                run_trading_sync(character_id, auth, store, esi)
+            finally:
+                esi.close()
+            now = datetime.now(timezone.utc).isoformat()
+            _sync_jobs[character_id]["last"] = now
+            # Also update trading sync timestamp so the trading page can read it
+            _trading_sync_jobs.setdefault(character_id, {})["last"] = now
+            _trading_sync_jobs[character_id]["running"] = False
+            _trading_sync_jobs[character_id]["error"] = None
         except Exception as e:
             _sync_jobs[character_id]["error"] = str(e)
             print(f"[scheduler] Error syncing {character_id}: {e}")
@@ -552,6 +567,126 @@ def api_sync(character_id: int, background_tasks: BackgroundTasks):
 @app.get("/api/c/{character_id}/status")
 def api_status(character_id: int):
     return _sync_jobs.get(character_id, {"running": False, "last": None, "error": None})
+
+
+# ── Trading ───────────────────────────────────────────────────────────────────
+
+@app.get("/trading/{character_id}", response_class=HTMLResponse)
+def trading_page(request: Request, character_id: int):
+    character = store.get_character(character_id)
+    if not character:
+        return HTMLResponse("<h2>Character not tracked. <a href='/auth/start'>Add yours?</a></h2>", status_code=404)
+    current = store.get_last_snapshot(character_id) or {}
+    return templates.TemplateResponse("trading.html", {
+        "request":   request,
+        "character": character,
+        "current":   current,
+    })
+
+
+@app.get("/api/c/{character_id}/trading-data")
+def api_trading_data(character_id: int):
+    transactions = store.get_transactions(character_id, days=30)
+    from datetime import timedelta
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    until = datetime.now(timezone.utc).isoformat()
+    journal = store.get_journal_entries_between(character_id, since, until)
+    orders = store.get_orders(character_id)
+
+    pnl = compute_trade_pnl(transactions, journal)
+    cancelled = compute_cancelled_order_losses(orders)
+    active = [o for o in orders if o["state"] == "active"]
+    tracked = store.get_tracked_items(character_id)
+
+    return {
+        "pnl":             pnl,
+        "cancelled_orders": cancelled,
+        "active_orders":   active,
+        "tracked_items":   tracked,
+    }
+
+
+@app.post("/api/c/{character_id}/sync-trading")
+def api_sync_trading(character_id: int, background_tasks: BackgroundTasks):
+    if not store.get_token(character_id):
+        return JSONResponse({"error": "character not registered"}, status_code=404)
+    if _trading_sync_jobs.get(character_id, {}).get("running"):
+        return JSONResponse({"status": "already_running"})
+
+    _trading_sync_jobs.setdefault(character_id, {})["running"] = True
+    _trading_sync_jobs[character_id]["error"] = None
+
+    def _do_sync():
+        try:
+            token = auth.get_valid_token(character_id)
+            esi = ESIClient(access_token=token)
+            run_trading_sync(character_id, auth, store, esi)
+            esi.close()
+            _trading_sync_jobs[character_id]["last"] = datetime.now(timezone.utc).isoformat()
+        except Exception as e:
+            _trading_sync_jobs[character_id]["error"] = str(e)
+            print(f"[trading] Error syncing {character_id}: {e}")
+        finally:
+            _trading_sync_jobs[character_id]["running"] = False
+
+    background_tasks.add_task(_do_sync)
+    return JSONResponse({"status": "started"})
+
+
+@app.get("/api/c/{character_id}/trading-status")
+def api_trading_status(character_id: int):
+    return _trading_sync_jobs.get(character_id, {"running": False, "last": None, "error": None})
+
+
+@app.post("/api/c/{character_id}/track-item")
+async def api_track_item(request: Request, character_id: int):
+    body = await request.json()
+    type_id   = int(body["type_id"])
+    region_id = int(body.get("region_id", 10000002))
+    store.add_tracked_item(character_id, type_id, region_id)
+
+    # Fetch market history and return it
+    esi = None
+    try:
+        token = auth.get_valid_token(character_id)
+        esi = ESIClient(access_token=token)
+        raw = esi.get_market_history(region_id, type_id)
+        rows = [{"type_id": type_id, "region_id": region_id, **r} for r in raw]
+        store.save_market_history(rows)
+    except Exception as e:
+        print(f"[trading] Market history fetch failed for {type_id}: {e}")
+    finally:
+        if esi:
+            esi.close()
+
+    history = store.get_market_history(type_id, region_id, days=30)
+    return {"ok": True, "history": history}
+
+
+@app.delete("/api/c/{character_id}/track-item/{type_id}")
+def api_untrack_item(character_id: int, type_id: int, region_id: int = 10000002):
+    store.remove_tracked_item(character_id, type_id, region_id)
+    return {"ok": True}
+
+
+@app.get("/api/c/{character_id}/market-history/{type_id}")
+def api_market_history(character_id: int, type_id: int, region_id: int = 10000002):
+    history = store.get_market_history(type_id, region_id, days=30)
+    if not history:
+        esi = None
+        try:
+            token = auth.get_valid_token(character_id)
+            esi = ESIClient(access_token=token)
+            raw = esi.get_market_history(region_id, type_id)
+            rows = [{"type_id": type_id, "region_id": region_id, **r} for r in raw]
+            store.save_market_history(rows)
+            history = store.get_market_history(type_id, region_id, days=30)
+        except Exception as e:
+            print(f"[trading] Market history fetch failed for {type_id}: {e}")
+        finally:
+            if esi:
+                esi.close()
+    return history
 
 
 if __name__ == "__main__":

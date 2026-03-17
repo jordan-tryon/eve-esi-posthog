@@ -112,3 +112,120 @@ def detect_activity_type(journal_entries: list[dict], since: str) -> str:
 
     best = max(totals, key=lambda k: totals[k])
     return best if totals[best] >= 100_000 else "Unknown"
+
+
+def compute_trade_pnl(transactions: list[dict], journal_entries: list[dict]) -> list[dict]:
+    """
+    FIFO P&L over the supplied transaction window.
+    Returns list of dicts:
+      {type_id, type_name, qty_bought, qty_sold, avg_buy, avg_sell,
+       gross_profit, fees, net_profit, margin_pct}
+    """
+    from collections import deque
+
+    # Total fee amounts from journal (brokers_fee + transaction_tax), all positive
+    total_fees = sum(
+        abs(e.get("amount", 0.0))
+        for e in journal_entries
+        if e.get("ref_type") in ("brokers_fee", "transaction_tax")
+    )
+
+    # Group transactions by type_id
+    by_type: dict[int, list[dict]] = {}
+    for tx in transactions:
+        tid = tx["type_id"]
+        by_type.setdefault(tid, []).append(tx)
+
+    # Total sell volume for fee allocation denominator
+    total_sell_isk = sum(
+        tx["unit_price"] * tx["quantity"]
+        for tx in transactions
+        if not tx.get("is_buy")
+    )
+
+    results = []
+    for type_id, txs in by_type.items():
+        type_name = next((t.get("type_name") for t in txs if t.get("type_name")), str(type_id))
+        buys  = sorted([t for t in txs if t.get("is_buy")],  key=lambda t: t["date"])
+        sells = sorted([t for t in txs if not t.get("is_buy")], key=lambda t: t["date"])
+
+        if not sells:
+            continue
+
+        buy_queue: deque[tuple[int, float]] = deque()
+        for b in buys:
+            buy_queue.append((b["quantity"], b["unit_price"]))
+
+        qty_bought = sum(b["quantity"] for b in buys)
+        qty_sold   = sum(s["quantity"] for s in sells)
+        total_sell_isk_type = sum(s["unit_price"] * s["quantity"] for s in sells)
+        avg_sell = total_sell_isk_type / qty_sold if qty_sold else 0.0
+
+        gross_profit = 0.0
+        matched_buy_isk = 0.0
+        matched_qty = 0
+
+        for s in sells:
+            remaining = s["quantity"]
+            while remaining > 0 and buy_queue:
+                bqty, bprice = buy_queue[0]
+                take = min(remaining, bqty)
+                gross_profit += (s["unit_price"] - bprice) * take
+                matched_buy_isk += bprice * take
+                matched_qty += take
+                remaining -= take
+                if take == bqty:
+                    buy_queue.popleft()
+                else:
+                    buy_queue[0] = (bqty - take, bprice)
+
+        avg_buy = matched_buy_isk / matched_qty if matched_qty else 0.0
+
+        # Allocate fees proportionally by sell ISK
+        item_sell_isk = total_sell_isk_type
+        fees = (item_sell_isk / total_sell_isk * total_fees) if total_sell_isk else 0.0
+
+        net_profit = gross_profit - fees
+        margin_pct = (net_profit / item_sell_isk * 100) if item_sell_isk else 0.0
+
+        results.append({
+            "type_id":     type_id,
+            "type_name":   type_name,
+            "qty_bought":  qty_bought,
+            "qty_sold":    qty_sold,
+            "avg_buy":     round(avg_buy, 2),
+            "avg_sell":    round(avg_sell, 2),
+            "gross_profit": round(gross_profit, 2),
+            "fees":        round(fees, 2),
+            "net_profit":  round(net_profit, 2),
+            "margin_pct":  round(margin_pct, 2),
+        })
+
+    results.sort(key=lambda r: r["net_profit"], reverse=True)
+    return results
+
+
+def compute_cancelled_order_losses(orders: list[dict]) -> list[dict]:
+    """
+    Returns cancelled/expired sell orders as potential lost capital.
+    Each entry: {type_id, type_name, cancelled_qty, price, capital_at_risk, state}
+    """
+    result = []
+    for o in orders:
+        if o.get("state") not in ("cancelled", "expired"):
+            continue
+        if o.get("is_buy_order"):
+            continue
+        qty   = o.get("volume_remain", 0)
+        price = o.get("price", 0.0)
+        result.append({
+            "type_id":        o["type_id"],
+            "type_name":      o.get("type_name", str(o["type_id"])),
+            "cancelled_qty":  qty,
+            "price":          price,
+            "capital_at_risk": round(qty * price, 2),
+            "state":          o["state"],
+            "issued":         o.get("issued", ""),
+        })
+    result.sort(key=lambda r: r["capital_at_risk"], reverse=True)
+    return result

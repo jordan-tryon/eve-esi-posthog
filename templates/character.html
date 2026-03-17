@@ -31,7 +31,10 @@
   </div>
   <div class="flex gap-2">
     <a href="/skills/{{ cid }}" class="btn-ghost text-sm px-3 py-1.5 rounded-sm">Skills</a>
-    <button onclick="triggerSync({{ cid }})" id="syncBtn" class="btn-sand text-sm px-4 py-1.5 rounded-sm">Sync Now</button>
+    <button onclick="triggerSync({{ cid }})" id="syncBtn" class="btn-sand text-sm px-4 py-1.5 rounded-sm flex items-center gap-2">
+      <span id="syncSpinner" style="display:none;width:11px;height:11px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0"></span>
+      <span id="syncBtnText">Sync Now</span>
+    </button>
   </div>
 </div>
 
@@ -59,6 +62,10 @@
     class="tab-btn px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
     Skills <span class="text-xs font-mono font-300 ml-1">{{ skills|length }}</span>
   </button>
+  <a href="/trading/{{ cid }}"
+    class="px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
+    Trading
+  </a>
 </div>
 
 <!-- ══ OVERVIEW TAB ══ -->
@@ -1013,8 +1020,12 @@ function sortSkills(col) {
 
 
 async function triggerSync(cid) {
-  const btn = document.getElementById('syncBtn');
-  btn.textContent = 'Syncing…';
+  const btn      = document.getElementById('syncBtn');
+  const spinner  = document.getElementById('syncSpinner');
+  const btnText  = document.getElementById('syncBtnText');
+
+  btnText.textContent = 'Syncing…';
+  spinner.style.display = 'inline-block';
   btn.disabled = true;
 
   await fetch(`/api/c/${cid}/sync`, {method:'POST'});
@@ -1023,9 +1034,15 @@ async function triggerSync(cid) {
     const s = await (await fetch(`/api/c/${cid}/status`)).json();
     if (!s.running) {
       clearInterval(iv);
-      btn.textContent = 'Sync Now';
+      spinner.style.display = 'none';
       btn.disabled = false;
-      if (!s.error) location.reload();
+      if (s.error) {
+        btnText.textContent = 'Sync Now';
+      } else {
+        btnText.textContent = 'Done ✓';
+        setTimeout(() => { btnText.textContent = 'Sync Now'; }, 2000);
+        location.reload();
+      }
     }
   }, 1500);
 }
