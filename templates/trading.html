@@ -593,6 +593,31 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
     return slice.reduce((a, b) => a + b, 0) / slice.length;
   });
 
+  // 7-day linear regression projection using last 14 data points
+  const fitWindow = avg.slice(-14).filter(Boolean);
+  const projLabels = [];
+  const projData   = new Array(avg.length).fill(null);  // nulls over historical range
+  if (fitWindow.length >= 3) {
+    const n  = fitWindow.length;
+    const xs = fitWindow.map((_, i) => i);
+    const sumX  = xs.reduce((a, b) => a + b, 0);
+    const sumY  = fitWindow.reduce((a, b) => a + b, 0);
+    const sumXY = xs.reduce((s, x, i) => s + x * fitWindow[i], 0);
+    const sumX2 = xs.reduce((s, x) => s + x * x, 0);
+    const slope     = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+    // Project 7 days ahead; last fitted x = n-1
+    const lastDate = new Date(history[history.length - 1].date);
+    for (let d = 1; d <= 7; d++) {
+      const projVal = intercept + slope * (n - 1 + d);
+      projData.push(Math.max(0, projVal));
+      const nd = new Date(lastDate);
+      nd.setDate(nd.getDate() + d);
+      projLabels.push(`${String(nd.getMonth()+1).padStart(2,'0')}-${String(nd.getDate()).padStart(2,'0')}`);
+    }
+  }
+  const allLabels = [...labels, ...projLabels];
+
   // Near 30d high?
   const validAvg = avg.filter(Boolean);
   const max30 = validAvg.length > 0 ? Math.max(...validAvg) : 0;
@@ -600,11 +625,19 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
   const action = nearHigh ? 'Sell now — near 30d high' : trend.label;
   const actionStyle = nearHigh ? 'color:#c8a96e' : trend.style;
 
+  // Projection end price for display
+  const projEnd = projData[projData.length - 1];
+  const projDelta = projEnd && avg[avg.length - 1] ? ((projEnd - avg[avg.length - 1]) / avg[avg.length - 1] * 100) : null;
+  const projLabel = projDelta !== null
+    ? `7d proj: ${projDelta >= 0 ? '+' : ''}${projDelta.toFixed(1)}% → ${fmtIsk(projEnd)}`
+    : '';
+
   container.innerHTML = `
     <div class="flex items-start justify-between mb-2">
       <div>
         <p class="font-display font-600 text-dune-text text-sm">${typeName}</p>
         <p class="text-xs font-mono mt-0.5" style="${actionStyle}">${trend.arrow} ${action}</p>
+        ${projLabel ? `<p class="text-xs font-mono mt-0.5" style="color:#38bdf8">${projLabel}</p>` : ''}
       </div>
       <div class="flex gap-2 items-center">
         <span class="text-xs font-mono px-1.5 py-0.5 rounded-sm border border-dune-border" style="${vol.badge}">${vol.label}</span>
@@ -618,7 +651,7 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
   _historyCharts[typeId] = new Chart(document.getElementById(id), {
     type: 'line',
     data: {
-      labels,
+      labels: allLabels,
       datasets: [
         {
           label: 'Daily Avg',
@@ -639,6 +672,17 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
           tension: 0.3,
           fill: false,
           borderDash: [3, 3],
+        },
+        {
+          label: '7d Projection',
+          data: projData,
+          borderColor: '#38bdf8',
+          backgroundColor: 'rgba(56,189,248,0.08)',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: true,
+          borderDash: [5, 4],
         }
       ]
     },
@@ -649,7 +693,7 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
         tooltip: { callbacks: { label: ctx => fmtIsk(ctx.raw) + ' ISK' } }
       },
       scales: {
-        x: { grid: { color: 'rgba(42,45,53,0.5)' }, ticks: { color: '#6b7280', font: {size:9}, maxTicksLimit: 6 } },
+        x: { grid: { color: 'rgba(42,45,53,0.5)' }, ticks: { color: '#6b7280', font: {size:9}, maxTicksLimit: 8 } },
         y: { grid: { color: 'rgba(42,45,53,0.5)' }, ticks: { color: '#6b7280', font: {size:9}, callback: v => fmtIsk(v) } }
       }
     }
