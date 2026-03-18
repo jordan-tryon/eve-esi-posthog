@@ -71,9 +71,13 @@
 <!-- ══ OVERVIEW TAB ══ -->
 <div id="panel-overview">
 
-<!-- ── Live Status ── -->
-<p class="label text-xs mb-2 tracking-widest" style="color:#4a5568">LIVE STATUS</p>
-<div class="grid grid-cols-3 gap-2 mb-2">
+<!-- ── Live Status + Finances — single row ── -->
+<div class="flex items-stretch gap-0 mb-4">
+
+<!-- LEFT: Live Status -->
+<div class="flex-1 min-w-0">
+<p class="label text-xs mb-1.5 tracking-widest" style="color:#4a5568">LIVE STATUS</p>
+<div class="grid grid-cols-3 gap-2">
 
   <!-- Card 1: Location -->
   <div class="card p-2.5">
@@ -230,11 +234,15 @@
   </div>
 
 </div>
+</div><!-- /live status -->
 
-<!-- ── Finances ── -->
-<div class="border-t border-dune-border my-2 pt-2">
-<p class="label text-xs mb-2 tracking-widest" style="color:#4a5568">FINANCES</p>
-<div class="grid grid-cols-2 gap-2 mb-2">
+<!-- Vertical divider -->
+<div class="border-l border-dune-border mx-3 self-stretch"></div>
+
+<!-- RIGHT: Finances -->
+<div style="width:148px;flex-shrink:0">
+<p class="label text-xs mb-1.5 tracking-widest" style="color:#4a5568">FINANCES</p>
+<div class="flex flex-col gap-2">
 
   <div class="card p-2.5">
     <p class="label mb-1">Wallet</p>
@@ -253,7 +261,9 @@
   </div>
 
 </div>
-</div><!-- /finances section -->
+</div><!-- /finances -->
+
+</div><!-- /row -->
 
 <!-- Escrow breakdown panel -->
 <div class="card p-3 mb-4" id="escrowPanel">
