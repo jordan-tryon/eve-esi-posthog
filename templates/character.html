@@ -776,8 +776,8 @@ function renderTimeline(data) {
     iskTimelineInst = new ApexCharts(el, {
       chart: { ..._apexBase, type: 'bar', height: 200 },
       series: [
-        { name: 'ISK Earned',        type: 'column', data: earned },
-        { name: 'ISK/hr (60m avg)',  type: 'line',   data: avgLine },
+        { name: 'ISK Earned',              type: 'column', data: earned },
+        { name: 'ISK/hr (60 minute avg)', type: 'line',   data: avgLine },
       ],
       xaxis: {
         categories: buckets.map(b => b.label),
@@ -808,7 +808,7 @@ function renderTimeline(data) {
           return `<div style="padding:8px 10px;font-family:Share Tech Mono,monospace;font-size:11px;background:#1c1f24;border:1px solid ${BORDER}">
             <div style="color:${MUTED};margin-bottom:4px">${hdr}</div>
             <div style="color:${SAND}">Earned: ${fmt(series[0][dataPointIndex] || 0)}</div>
-            <div style="color:${SAND}">60m rolling ISK/hr: ${fmt(series[1][dataPointIndex] || 0)}</div>
+            <div style="color:${SAND}">60 minute rolling ISK/hr: ${fmt(series[1][dataPointIndex] || 0)}</div>
           </div>`;
         },
       },
