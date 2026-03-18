@@ -60,6 +60,32 @@
   </div>
 </div>
 
+<!-- ISK in Escrow -->
+<div class="card p-4 mb-6" id="escrowPanel">
+  <div class="flex items-center justify-between mb-3">
+    <p class="label">ISK in Escrow</p>
+    <span id="escrowTotal" class="font-mono text-sm" style="color:#c8a96e">loading…</span>
+  </div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+    <div>
+      <p class="label text-xs mb-1">Buy Orders</p>
+      <p id="escrowBuyOrders" class="font-mono text-dune-muted">—</p>
+    </div>
+    <div>
+      <p class="label text-xs mb-1">Collateral at Risk</p>
+      <p id="escrowCollateral" class="font-mono text-dune-muted">—</p>
+    </div>
+    <div>
+      <p class="label text-xs mb-1">Posted Rewards</p>
+      <p id="escrowRewards" class="font-mono text-dune-muted">—</p>
+    </div>
+    <div>
+      <p class="label text-xs mb-1">Auction Bids</p>
+      <p id="escrowAuction" class="font-mono text-dune-muted">—</p>
+    </div>
+  </div>
+</div>
+
 <!-- Main grid -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
 
@@ -897,6 +923,35 @@ async function syncTrading() {
   }
 }
 
+async function loadEscrow() {
+  try {
+    const d = await (await fetch(`/api/c/${CID}/escrow`)).json();
+    const f = v => v >= 1e9 ? (v/1e9).toFixed(2)+'B'
+                 : v >= 1e6 ? (v/1e6).toFixed(1)+'M'
+                 : v >= 1e3 ? (v/1e3).toFixed(0)+'K'
+                 : v.toFixed(0);
+    document.getElementById('escrowTotal').textContent =
+      d.total_in_escrow > 0 ? f(d.total_in_escrow) + ' ISK' : '—';
+    document.getElementById('escrowBuyOrders').textContent =
+      d.buy_orders.total > 0 ? f(d.buy_orders.total) : '—';
+    document.getElementById('escrowCollateral').textContent =
+      d.collateral_locked.total > 0
+        ? f(d.collateral_locked.total) + (d.collateral_locked.entries.length ? ` (${d.collateral_locked.entries.length})` : '')
+        : '—';
+    document.getElementById('escrowRewards').textContent =
+      d.rewards_posted.total > 0
+        ? f(d.rewards_posted.total) + (d.rewards_posted.entries.length ? ` (${d.rewards_posted.entries.length})` : '')
+        : '—';
+    document.getElementById('escrowAuction').textContent =
+      d.auction_bids.total > 0 ? f(d.auction_bids.total) : '—';
+    if (d.total_in_escrow === 0) {
+      document.getElementById('escrowPanel').style.display = 'none';
+    }
+  } catch (e) {
+    document.getElementById('escrowTotal').textContent = 'unavailable';
+  }
+}
+
 // Init
 (async () => {
   try {
@@ -907,7 +962,7 @@ async function syncTrading() {
   }
   document.getElementById('sort-net_profit').classList.add('sand');
   try {
-    await loadData();
+    await Promise.all([loadData(), loadEscrow()]);
   } catch (e) {
     console.error('loadData failed:', e);
   }

@@ -235,6 +235,13 @@ def run_hourly_snapshot(
     if journal_24h:
         activity_type = detect_activity_type(journal_24h, since_24h)
 
+    # Ship type is a more reliable signal for Mining/Exploration:
+    # their income flows through market_transaction (excluded as trade), so the
+    # journal analysis can't detect them. Override here when the ship says otherwise.
+    ship_session_type = detect_session_type(ship_group_id)
+    if ship_session_type in ("Mining", "Exploration"):
+        activity_type = ship_session_type
+
     if prev and prev.get("wallet_balance") is not None and wallet_balance is not None:
         prev_dt    = datetime.fromisoformat(prev["captured_at"])
         now_dt     = datetime.fromisoformat(now)

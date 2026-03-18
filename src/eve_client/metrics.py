@@ -6,7 +6,11 @@ from datetime import datetime, timezone
 BOUNTY_TYPES = {"bounty_prizes", "ess_escrow_transfer", "bounty_prize"}
 MISSION_TYPES = {
     "agent_mission_reward", "agent_mission_time_bonus_reward",
-    "agent_mission_reward_bonus", "daily_goal_payouts",
+    "agent_mission_reward_bonus",
+}
+# Daily opportunity / login rewards — distinct from agent missions
+OPPORTUNITY_TYPES = {
+    "daily_goal_payouts",
 }
 # ISK exchanges — move existing ISK between players, do NOT create it
 TRADE_TYPES = {
@@ -33,6 +37,9 @@ CONTRACT_INCOME_TYPES = {
 }
 
 _NON_FAUCET_TYPES = TRADE_TYPES | INDUSTRY_TYPES | ESCROW_RETURN_TYPES | CONTRACT_INCOME_TYPES
+
+# All activity-detectable faucet types (used in detect_activity_type)
+_ACTIVITY_FAUCETS = BOUNTY_TYPES | MISSION_TYPES | OPPORTUNITY_TYPES
 
 # EVE ship group IDs for capitals
 CAPITAL_GROUP_IDS = {
@@ -121,8 +128,13 @@ def compute_risk_level(
 
 def detect_activity_type(journal_entries: list[dict], since: str) -> str:
     """Detect primary activity from true ISK faucet entries only.
-    Trading and industry are excluded — they don't reveal ISK-generating activity."""
-    totals = {"Combat PvE": 0.0, "Missions": 0.0, "Other": 0.0}
+
+    Returns the dominant ISK source category as a human-readable label.
+    Trading and industry are excluded — they don't reveal ISK-generating activity.
+    Exploration income (loot sold via market) is also invisible here; the caller
+    should override with ship-based detection for Mining/Exploration ships.
+    """
+    totals = {"Combat": 0.0, "Missions": 0.0, "Opportunities": 0.0, "Other": 0.0}
 
     for e in journal_entries:
         amount = e.get("amount", 0.0)
@@ -132,9 +144,11 @@ def detect_activity_type(journal_entries: list[dict], since: str) -> str:
         if ref in _NON_FAUCET_TYPES:
             continue
         if ref in BOUNTY_TYPES:
-            totals["Combat PvE"] += amount
+            totals["Combat"] += amount
         elif ref in MISSION_TYPES:
             totals["Missions"] += amount
+        elif ref in OPPORTUNITY_TYPES:
+            totals["Opportunities"] += amount
         else:
             totals["Other"] += amount
 
