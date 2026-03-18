@@ -231,7 +231,7 @@
         &#9656; <span id="filterPillLabel"></span> &times;
       </span>
     </div>
-    <div class="grid grid-cols-3 gap-3">
+    <div class="grid grid-cols-2 gap-3">
 
       <div class="card p-3">
         <p class="label mb-1.5">Wallet</p>
@@ -255,6 +255,17 @@
           {% if c.wealth_isk_hour is not none %}{{ '{:+,.0f}'.format(c.wealth_isk_hour / 1e3) }}K{% else %}—{% endif %}
         </p>
         <p class="text-dune-muted text-xs font-mono mt-0.5">wealth/hr</p>
+      </div>
+
+      <div class="card p-3">
+        <p class="label mb-1.5">Collection / hr</p>
+        {% if collection_isk_hr is not none %}
+        <p class="font-mono font-600 text-sm sec-high">{{ '{:,.0f}'.format(collection_isk_hr / 1e3) }}K</p>
+        <p class="text-dune-muted text-xs font-mono mt-0.5">est. loot/hr</p>
+        {% else %}
+        <p class="font-mono font-600 text-sm text-dune-muted">—</p>
+        <p class="text-dune-muted text-xs font-mono mt-0.5">no active session</p>
+        {% endif %}
       </div>
 
     </div>
@@ -750,15 +761,22 @@ function renderTimeline(data) {
     const buckets = data.buckets;
     const values  = buckets.map(b => b.isk_hour);
     iskTimelineInst = new Chart(canvas, {
-      type: 'bar',
+      type: 'line',
       plugins: [makeBlipPlugin(data.events)],
       data: {
         labels: buckets.map(b => b.label),
         datasets: [{
           data: values,
-          backgroundColor: values.map(v => v >= 0 ? 'rgba(200,169,110,0.45)' : 'rgba(212,116,42,0.5)'),
-          borderColor:     values.map(v => v >= 0 ? SAND : SPICE),
-          borderWidth: 0,
+          borderColor: SAND,
+          borderWidth: 1.5,
+          backgroundColor: 'rgba(200,169,110,0.08)',
+          fill: true,
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 3,
+          segment: {
+            borderColor: ctx => ctx.p1.parsed.y >= 0 ? SAND : SPICE,
+          },
         }]
       },
       options: {

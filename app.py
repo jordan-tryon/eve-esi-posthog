@@ -49,6 +49,17 @@ _trading_sync_jobs: dict[int, dict] = {}   # character_id → {running, last, er
 
 def _make_sync_fn(character_id: int):
     def _sync():
+        # When offline, only sync hourly to save API calls
+        last = store.get_last_snapshot(character_id)
+        if last and not last.get("online"):
+            try:
+                elapsed_min = (datetime.now(timezone.utc) -
+                               datetime.fromisoformat(last["captured_at"])
+                               ).total_seconds() / 60
+                if elapsed_min < 55:
+                    return
+            except Exception:
+                pass
         _sync_jobs.setdefault(character_id, {})["running"] = True
         _sync_jobs[character_id]["error"] = None
         try:
@@ -88,7 +99,7 @@ def register_character_job(character_id: int, run_now: bool = True):
     if not scheduler.get_job(job_id):
         scheduler.add_job(
             _make_sync_fn(character_id),
-            trigger=IntervalTrigger(hours=1),
+            trigger=IntervalTrigger(minutes=10),
             id=job_id,
             next_run_time=datetime.now(timezone.utc) if run_now else None,
         )
@@ -202,15 +213,28 @@ def character_page(request: Request, character_id: int):
     ).fetchall()
     status = _sync_jobs.get(character_id, {})
     skills = store.get_skills(character_id)
+
+    # Collection ISK/hr — assets_gained_value in open session ÷ elapsed hours
+    collection_isk_hr = None
+    open_session = store.get_open_session(character_id)
+    if open_session and open_session.get("assets_gained_value"):
+        try:
+            t0 = datetime.fromisoformat(open_session["started_at"].replace("Z", "+00:00"))
+            elapsed_h = max((datetime.now(timezone.utc) - t0).total_seconds() / 3600, 0.01)
+            collection_isk_hr = round(open_session["assets_gained_value"] / elapsed_h, 0)
+        except Exception:
+            pass
+
     return templates.TemplateResponse("character.html", {
-        "request":     request,
-        "character":   character,
-        "current":     current,
-        "snapshots":   snapshots,
-        "sessions":    [dict(s) for s in sessions],
-        "losses":      [dict(l) for l in losses],
-        "sync_status": status,
-        "skills":      skills,
+        "request":            request,
+        "character":          character,
+        "current":            current,
+        "snapshots":          snapshots,
+        "sessions":           [dict(s) for s in sessions],
+        "losses":             [dict(l) for l in losses],
+        "sync_status":        status,
+        "skills":             skills,
+        "collection_isk_hr":  collection_isk_hr,
     })
 
 
