@@ -746,6 +746,7 @@ function _renderEventRow(ctx, events, buckets) {
   if (!events?.length || !buckets.length) return;
 
   const g = ctx.w.globals;
+  if (!g.gridWidth) return;  // chart not laid out yet — skip
   const barWidth = g.gridWidth / buckets.length;
 
   // Group events by bucket_index
@@ -804,8 +805,8 @@ function renderTimeline(data) {
       chart: {
         ..._apexBase, type: 'bar', height: 200,
         events: {
-          mounted: (ctx) => _renderEventRow(ctx, data.events, buckets),
-          updated: (ctx) => _renderEventRow(ctx, data.events, buckets),
+          mounted: (ctx) => requestAnimationFrame(() => _renderEventRow(ctx, data.events, buckets)),
+          updated: (ctx) => requestAnimationFrame(() => _renderEventRow(ctx, data.events, buckets)),
         },
       },
       series: [
@@ -846,7 +847,7 @@ function renderTimeline(data) {
       },
       dataLabels: { enabled: false },
     });
-    iskTimelineInst.render();
+    iskTimelineInst.render().then(() => _renderEventRow(iskTimelineInst, data.events, buckets));
 
   } else {
     // Sessions view — ISK/hr bar per session
