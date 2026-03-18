@@ -957,7 +957,35 @@ def api_escrow(character_id: int):
 
 @app.get("/api/c/{character_id}/clone")
 def api_clone(character_id: int):
-    """Return active clone implant value and current skill training."""
+    """Return active clone implant value and current skill training.
+
+    Cache TTL: 1 hour when character is online/in active session, 24 hours otherwise.
+    """
+    now = datetime.now(timezone.utc)
+
+    # Determine TTL based on whether character is currently online
+    last_snap = store.get_last_snapshot(character_id)
+    in_session = bool(last_snap and last_snap.get("online"))
+    ttl_hours = 1 if in_session else 24
+
+    # Return cached value if still fresh
+    cached = store.get_clone_cache(character_id)
+    if cached:
+        try:
+            fetched_at = datetime.fromisoformat(cached["fetched_at"])
+            age_hours = (now - fetched_at).total_seconds() / 3600
+            if age_hours < ttl_hours:
+                return {
+                    "implant_count": cached["implant_count"],
+                    "implant_value": cached["implant_value"],
+                    "training":      cached["training"],
+                    "cached":        True,
+                    "fetched_at":    cached["fetched_at"],
+                }
+        except Exception:
+            pass  # Bad timestamp — fall through to refresh
+
+    # Fetch fresh data from ESI
     token = auth.get_valid_token(character_id)
     esi   = ESIClient(access_token=token)
     try:
@@ -971,7 +999,6 @@ def api_clone(character_id: int):
     implant_value = round(sum(price_map.get(tid, 0.0) for tid in implants), 2)
 
     # Find the currently-training skill (earliest finish_date in the future)
-    now = datetime.now(timezone.utc)
     training = None
     for entry in sorted(skillqueue, key=lambda e: e.get("queue_position", 99)):
         fd = entry.get("finish_date")
@@ -981,7 +1008,6 @@ def api_clone(character_id: int):
             finish = datetime.fromisoformat(fd.replace("Z", "+00:00"))
             if finish > now:
                 hours_remaining = round((finish - now).total_seconds() / 3600, 1)
-                # Try to resolve skill name from our local store
                 skill_name = None
                 row = store.conn.execute(
                     "SELECT skill_name FROM skills WHERE character_id=? AND skill_id=? AND skill_name IS NOT NULL",
@@ -990,20 +1016,24 @@ def api_clone(character_id: int):
                 if row:
                     skill_name = row[0]
                 training = {
-                    "skill_id":       entry["skill_id"],
-                    "skill_name":     skill_name or f"Skill {entry['skill_id']}",
-                    "trained_level":  entry.get("finished_level", entry.get("level", 1)),
-                    "finish_date":    fd,
+                    "skill_id":        entry["skill_id"],
+                    "skill_name":      skill_name or f"Skill {entry['skill_id']}",
+                    "trained_level":   entry.get("finished_level", entry.get("level", 1)),
+                    "finish_date":     fd,
                     "hours_remaining": hours_remaining,
                 }
                 break
         except Exception:
             continue
 
+    store.set_clone_cache(character_id, len(implants), implant_value, training)
+
     return {
         "implant_count": len(implants),
         "implant_value": implant_value,
         "training":      training,
+        "cached":        False,
+        "fetched_at":    now.isoformat(),
     }
 
 

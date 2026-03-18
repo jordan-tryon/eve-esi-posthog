@@ -171,6 +171,14 @@ class SnapshotStore:
                 quantity     INTEGER NOT NULL,
                 PRIMARY KEY (character_id, captured_at, type_id)
             );
+
+            CREATE TABLE IF NOT EXISTS clone_cache (
+                character_id  INTEGER PRIMARY KEY,
+                implant_count INTEGER,
+                implant_value REAL,
+                training_json TEXT,
+                fetched_at    TEXT NOT NULL
+            );
         """)
         self.conn.commit()
         self._migrate()
@@ -396,6 +404,35 @@ class SnapshotStore:
             "SELECT * FROM character_tokens WHERE character_id=?", (character_id,)
         ).fetchone()
         return dict(row) if row else None
+
+    # --- Clone cache ---
+
+    def get_clone_cache(self, character_id: int) -> dict | None:
+        row = self.conn.execute(
+            "SELECT implant_count, implant_value, training_json, fetched_at FROM clone_cache WHERE character_id=?",
+            (character_id,)
+        ).fetchone()
+        if not row:
+            return None
+        import json
+        return {
+            "implant_count": row[0],
+            "implant_value": row[1],
+            "training":      json.loads(row[2]) if row[2] else None,
+            "fetched_at":    row[3],
+        }
+
+    def set_clone_cache(self, character_id: int, implant_count: int, implant_value: float, training: dict | None):
+        import json
+        from datetime import datetime, timezone
+        self.conn.execute(
+            """INSERT OR REPLACE INTO clone_cache (character_id, implant_count, implant_value, training_json, fetched_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (character_id, implant_count, implant_value,
+             json.dumps(training) if training else None,
+             datetime.now(timezone.utc).isoformat())
+        )
+        self.conn.commit()
 
     def get_all_character_ids(self) -> list[int]:
         rows = self.conn.execute("SELECT character_id FROM character_tokens").fetchall()
