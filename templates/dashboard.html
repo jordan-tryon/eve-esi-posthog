@@ -185,10 +185,10 @@ async function loadCharts() {
   const labels     = snaps.map(s => s.captured_at.slice(0, 16).replace('T', ' '));
   const wallet     = snaps.map(s => s.wallet_balance);
   const iskHour    = snaps.map(s => s.isk_hour ?? 0);
-  // isk_hour_bounty = Combat faucets, isk_hour_trade = Missions/Events (column repurposed)
+  // isk_hour_bounty = Combat, isk_hour_trade = Missions/Events (column repurposed; industry excluded — not a faucet)
   const combat     = snaps.reduce((a, s) => a + (s.isk_hour_bounty ?? 0), 0);
-  const missions   = snaps.reduce((a, s) => a + (s.isk_hour_trade ?? 0), 0);
-  const other      = snaps.reduce((a, s) => a + (s.isk_hour_other ?? 0), 0);
+  const missions   = snaps.reduce((a, s) => a + (s.isk_hour_trade  ?? 0), 0);
+  const other      = snaps.reduce((a, s) => a + (s.isk_hour_other  ?? 0), 0);
 
   // Wallet balance line chart
   new Chart(document.getElementById('walletChart'), {

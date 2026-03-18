@@ -2,7 +2,7 @@
 {% block title %}{{ character.character_name }} — Arrakis Tracker{% endblock %}
 
 {% block head %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 {% endblock %}
 
 {% block content %}
@@ -71,238 +71,192 @@
 <!-- ══ OVERVIEW TAB ══ -->
 <div id="panel-overview">
 
-<!-- ── Grouped metric cards ── -->
-<div class="flex flex-col lg:flex-row gap-3 mb-6">
+<!-- ── Live Status ── -->
+<p class="label text-xs mb-2 tracking-widest" style="color:#4a5568">LIVE STATUS</p>
+<div class="grid grid-cols-3 gap-2 mb-2">
 
-  <!-- LIVE STATUS -->
-  <div class="flex-1 min-w-0">
-    <p class="mb-2 font-mono text-xs tracking-widest" style="color:#3a3e46">LIVE STATUS</p>
-    <div class="grid grid-cols-3 gap-3">
+  <!-- Card 1: Location -->
+  <div class="card p-2.5">
+    <p class="label mb-1">Location</p>
+    <p class="font-display font-600 text-dune-bright text-sm truncate">{{ c.system_name or '—' }}</p>
+    {% if c.security_status is not none %}
+    <p class="text-xs font-mono mt-0.5 {% if c.security_status >= 0.45 %}sec-high{% elif c.security_status >= 0.05 %}sec-low{% else %}sec-null{% endif %}">
+      {{ '%.2f'|format(c.security_status) }} —
+      {% if c.station_id or c.structure_id %}Docked{% else %}In Space{% endif %}
+    </p>
+    {% else %}
+    <p class="text-xs font-mono text-dune-muted mt-0.5">
+      {% if c.station_id or c.structure_id %}Docked{% else %}In Space{% endif %}
+    </p>
+    {% endif %}
+  </div>
 
-      <div class="card p-3">
-        <p class="label mb-1.5">Location</p>
-        <p class="font-display font-600 text-dune-bright text-sm truncate">{{ c.system_name or '—' }}</p>
-        {% if c.security_status is not none %}
-        <p class="text-xs font-mono mt-0.5 {% if c.security_status >= 0.45 %}sec-high{% elif c.security_status >= 0.05 %}sec-low{% else %}sec-null{% endif %}">
-          {{ '%.2f'|format(c.security_status) }}
-        </p>
-        {% endif %}
-      </div>
+  <!-- Card 2: Ship -->
+  <div class="card p-2.5">
+    <p class="label mb-1">Ship</p>
+    <p class="font-display font-600 text-dune-bright text-sm truncate">{{ c.ship_name or '—' }}</p>
+    {% if c.at_risk_value and c.at_risk_value > 0 %}
+    <p class="text-xs font-mono mt-0.5 spice">{{ c.at_risk_value | fmt_isk }} at risk</p>
+    {% elif c.station_id or c.structure_id %}
+    <p class="text-xs font-mono text-dune-muted mt-0.5">docked</p>
+    {% else %}
+    <p class="text-xs font-mono text-dune-muted mt-0.5">in space</p>
+    {% endif %}
+  </div>
 
-      <div class="card p-3">
-        <p class="label mb-1.5">Ship</p>
-        <p class="font-display font-600 text-dune-bright text-sm truncate">{{ c.ship_name or '—' }}</p>
-        {% if c.total_sp %}
-        <p class="text-xs font-mono text-dune-muted mt-0.5">{{ '{:,.0f}'.format(c.total_sp) }} SP</p>
-        {% endif %}
-      </div>
+  {# ── Risk tooltip factors ── #}
+  {% set _CAPS = [485, 547, 659, 30, 1538, 883] %}
+  {% if c.security_status is none %}
+    {% set _sec_label = "Unknown location" %}
+    {% set _sec_cls   = "text-dune-muted" %}
+    {% set _base      = "HIGH" %}
+  {% elif c.security_status >= 0.45 %}
+    {% set _sec_label = "Highsec (" ~ '%.2f'|format(c.security_status) ~ ")" %}
+    {% set _sec_cls   = "sec-high" %}
+    {% set _base      = "LOW" %}
+  {% elif c.security_status >= 0.05 %}
+    {% set _sec_label = "Lowsec (" ~ '%.2f'|format(c.security_status) ~ ")" %}
+    {% set _sec_cls   = "sec-low" %}
+    {% set _base      = "MEDIUM" %}
+  {% else %}
+    {% set _sec_label = "Null / WH (" ~ '%.2f'|format(c.security_status) ~ ")" %}
+    {% set _sec_cls   = "sec-null" %}
+    {% set _base      = "HIGH" %}
+  {% endif %}
+  {% set _is_capital    = c.ship_group_id in _CAPS %}
+  {% set _high_losses   = c.recent_losses is not none and c.recent_losses >= 2 %}
+  {% set _expensive_fit = c.security_status is not none
+                          and c.security_status >= 0.45
+                          and c.at_risk_value is not none
+                          and c.at_risk_value >= 60000000 %}
+  {% set _escalated     = _is_capital or _high_losses or _expensive_fit %}
 
-      {# ── Risk tooltip factors ── #}
-      {% set _CAPS = [485, 547, 659, 30, 1538, 883] %}
-
-      {# Base level + location label from security status #}
-      {% if c.security_status is none %}
-        {% set _sec_label = "Unknown location" %}
-        {% set _sec_cls   = "text-dune-muted" %}
-        {% set _base      = "HIGH" %}
-      {% elif c.security_status >= 0.45 %}
-        {% set _sec_label = "Highsec (" ~ '%.2f'|format(c.security_status) ~ ")" %}
-        {% set _sec_cls   = "sec-high" %}
-        {% set _base      = "LOW" %}
-      {% elif c.security_status >= 0.05 %}
-        {% set _sec_label = "Lowsec (" ~ '%.2f'|format(c.security_status) ~ ")" %}
-        {% set _sec_cls   = "sec-low" %}
-        {% set _base      = "MEDIUM" %}
-      {% else %}
-        {% set _sec_label = "Null / WH (" ~ '%.2f'|format(c.security_status) ~ ")" %}
-        {% set _sec_cls   = "sec-null" %}
-        {% set _base      = "HIGH" %}
-      {% endif %}
-
-      {% set _is_capital    = c.ship_group_id in _CAPS %}
-      {% set _high_losses   = c.recent_losses is not none and c.recent_losses >= 2 %}
-      {% set _expensive_fit = c.security_status is not none
-                              and c.security_status >= 0.45
-                              and c.at_risk_value is not none
-                              and c.at_risk_value >= 60000000 %}
-      {% set _escalated     = _is_capital or _high_losses or _expensive_fit %}
-
-      <div class="card p-3 group" style="overflow:visible">
-        <p class="label mb-1.5">
-          Risk <span class="text-dune-muted" style="font-size:0.6rem;vertical-align:middle">ⓘ</span>
-        </p>
-        <p class="font-display font-700 text-sm risk-{{ c.risk_level or 'LOW' }}">{{ c.risk_level or '—' }}</p>
-        {% if c.recent_losses %}
-        <p class="text-xs spice mt-0.5 font-display">{{ c.recent_losses }} loss / 24h</p>
-        {% else %}
-        <p class="text-xs text-dune-muted mt-0.5 font-mono">no losses</p>
-        {% endif %}
-
-        <!-- Tooltip — anchored to right edge so it doesn't clip viewport -->
-        <div class="absolute right-0 top-full mt-1.5 z-50 w-52
-                    opacity-0 group-hover:opacity-100 pointer-events-none
-                    transition-opacity duration-150 rounded-sm border border-dune-border"
-             style="background:#111214;min-width:200px">
-
-          <!-- Arrow nub -->
-          <div class="absolute -top-1.5 right-3 w-2.5 h-2.5 rotate-45 border-l border-t border-dune-border"
-               style="background:#111214"></div>
-
-          <div class="p-3 text-xs">
-            <p class="label mb-2.5">Risk Factors</p>
-
-            <!-- Location / security -->
-            <div class="flex items-start justify-between gap-3 mb-2">
-              <div class="min-w-0">
-                <p class="text-dune-muted font-display mb-0.5">Location</p>
-                <p class="font-mono {{ _sec_cls }}">{{ _sec_label }}</p>
-              </div>
-              <span class="font-mono font-700 flex-shrink-0 risk-{{ _base }}">{{ _base }}</span>
-            </div>
-
-            <!-- Capital ship -->
-            <div class="flex items-start justify-between gap-3 mb-2">
-              <div class="min-w-0">
-                <p class="text-dune-muted font-display mb-0.5">Ship class</p>
-                <p class="font-mono {% if _is_capital %}spice{% else %}text-dune-muted{% endif %}">
-                  {% if _is_capital %}Capital — HIGH forced{% else %}{{ c.ship_name or 'Subcap' }}{% endif %}
-                </p>
-              </div>
-              {% if _is_capital %}
-              <span class="font-mono font-700 flex-shrink-0 spice">→ HIGH</span>
-              {% else %}
-              <span class="font-mono text-dune-muted flex-shrink-0">—</span>
-              {% endif %}
-            </div>
-
-            <!-- Fitting value -->
-            <div class="flex items-start justify-between gap-3 mb-2">
-              <div class="min-w-0">
-                <p class="text-dune-muted font-display mb-0.5">Fitting value</p>
-                <p class="font-mono {% if _expensive_fit %}spice{% else %}text-dune-muted{% endif %}">
-                  {% if c.at_risk_value %}{{ c.at_risk_value | fmt_isk }} ISK{% else %}not in space{% endif %}
-                </p>
-              </div>
-              {% if _expensive_fit %}
-              <span class="font-mono font-700 flex-shrink-0 spice">→ MED</span>
-              {% else %}
-              <span class="font-mono text-dune-muted flex-shrink-0">—</span>
-              {% endif %}
-            </div>
-
-            <!-- Recent losses -->
-            <div class="flex items-start justify-between gap-3 mb-2.5">
-              <div class="min-w-0">
-                <p class="text-dune-muted font-display mb-0.5">Recent losses</p>
-                <p class="font-mono {% if _high_losses %}spice{% else %}text-dune-muted{% endif %}">
-                  {{ c.recent_losses or 0 }} in last 24h
-                </p>
-              </div>
-              {% if _high_losses %}
-              <span class="font-mono font-700 flex-shrink-0 spice">escalated</span>
-              {% else %}
-              <span class="font-mono text-dune-muted flex-shrink-0">—</span>
-              {% endif %}
-            </div>
-
-            <!-- Result -->
-            <div class="border-t border-dune-border pt-2 flex items-center justify-between">
-              <p class="text-dune-muted font-display">
-                {% if _escalated %}Base {{ _base }} → escalated{% else %}No escalation{% endif %}
-              </p>
-              <span class="font-mono font-700 risk-{{ c.risk_level or 'LOW' }}">{{ c.risk_level or '—' }}</span>
-            </div>
+  <!-- Card 3: Risk (with tooltip) -->
+  <div class="card p-2.5 group" style="overflow:visible">
+    <p class="label mb-1">
+      Risk <span class="text-dune-muted" style="font-size:0.6rem;vertical-align:middle">ⓘ</span>
+    </p>
+    <p class="font-display font-700 text-sm risk-{{ c.risk_level or 'LOW' }}">{{ c.risk_level or '—' }}</p>
+    {% if c.recent_losses %}
+    <p class="text-xs spice mt-0.5 font-display">{{ c.recent_losses }} loss / 24h</p>
+    {% else %}
+    <p class="text-xs text-dune-muted mt-0.5 font-mono">no losses</p>
+    {% endif %}
+    <div class="absolute right-0 top-full mt-1.5 z-50 w-52
+                opacity-0 group-hover:opacity-100 pointer-events-none
+                transition-opacity duration-150 rounded-sm border border-dune-border"
+         style="background:#111214;min-width:200px">
+      <div class="absolute -top-1.5 right-3 w-2.5 h-2.5 rotate-45 border-l border-t border-dune-border"
+           style="background:#111214"></div>
+      <div class="p-3 text-xs">
+        <p class="label mb-2.5">Risk Factors</p>
+        <div class="flex items-start justify-between gap-3 mb-2">
+          <div class="min-w-0">
+            <p class="text-dune-muted font-display mb-0.5">Location</p>
+            <p class="font-mono {{ _sec_cls }}">{{ _sec_label }}</p>
           </div>
+          <span class="font-mono font-700 flex-shrink-0 risk-{{ _base }}">{{ _base }}</span>
+        </div>
+        <div class="flex items-start justify-between gap-3 mb-2">
+          <div class="min-w-0">
+            <p class="text-dune-muted font-display mb-0.5">Ship class</p>
+            <p class="font-mono {% if _is_capital %}spice{% else %}text-dune-muted{% endif %}">
+              {% if _is_capital %}Capital — HIGH forced{% else %}{{ c.ship_name or 'Subcap' }}{% endif %}
+            </p>
+          </div>
+          {% if _is_capital %}
+          <span class="font-mono font-700 flex-shrink-0 spice">→ HIGH</span>
+          {% else %}
+          <span class="font-mono text-dune-muted flex-shrink-0">—</span>
+          {% endif %}
+        </div>
+        <div class="flex items-start justify-between gap-3 mb-2">
+          <div class="min-w-0">
+            <p class="text-dune-muted font-display mb-0.5">Fitting value</p>
+            <p class="font-mono {% if _expensive_fit %}spice{% else %}text-dune-muted{% endif %}">
+              {% if c.at_risk_value %}{{ c.at_risk_value | fmt_isk }} ISK{% else %}not in space{% endif %}
+            </p>
+          </div>
+          {% if _expensive_fit %}
+          <span class="font-mono font-700 flex-shrink-0 spice">→ MED</span>
+          {% else %}
+          <span class="font-mono text-dune-muted flex-shrink-0">—</span>
+          {% endif %}
+        </div>
+        <div class="flex items-start justify-between gap-3 mb-2.5">
+          <div class="min-w-0">
+            <p class="text-dune-muted font-display mb-0.5">Recent losses</p>
+            <p class="font-mono {% if _high_losses %}spice{% else %}text-dune-muted{% endif %}">
+              {{ c.recent_losses or 0 }} in last 24h
+            </p>
+          </div>
+          {% if _high_losses %}
+          <span class="font-mono font-700 flex-shrink-0 spice">escalated</span>
+          {% else %}
+          <span class="font-mono text-dune-muted flex-shrink-0">—</span>
+          {% endif %}
+        </div>
+        <div class="border-t border-dune-border pt-2 flex items-center justify-between">
+          <p class="text-dune-muted font-display">
+            {% if _escalated %}Base {{ _base }} → escalated{% else %}No escalation{% endif %}
+          </p>
+          <span class="font-mono font-700 risk-{{ c.risk_level or 'LOW' }}">{{ c.risk_level or '—' }}</span>
         </div>
       </div>
-
     </div>
   </div>
 
-  <div class="hidden lg:block w-px self-stretch" style="background:#2a2d35"></div>
-
-  <!-- FINANCES -->
-  <div class="flex-1 min-w-0">
-    <div class="flex items-center gap-2 mb-2">
-      <p class="font-mono text-xs tracking-widest" style="color:#3a3e46">FINANCES</p>
-      <span id="filterPill" style="display:none"
-        class="text-xs font-mono px-2 py-0.5 rounded-sm border border-dune-border cursor-pointer text-dune-muted hover:text-dune-sand transition-colors"
-        onclick="activeSource=null; updateIskDrilldown();">
-        &#9656; <span id="filterPillLabel"></span> &times;
-      </span>
-    </div>
-    <div class="grid grid-cols-2 gap-3">
-
-      <div class="card p-3">
-        <p class="label mb-1.5">Wallet</p>
-        <p class="font-mono font-600 text-dune-bright text-xs leading-snug mt-1">
-          {{ c.wallet_balance | fmt_isk if c.wallet_balance is not none else '—' }}
-        </p>
-        <p class="text-dune-muted text-xs font-mono mt-0.5">ISK</p>
-      </div>
-
-      <div class="card p-3">
-        <p class="label mb-1.5">ISK / Hour</p>
-        <p id="statIskHourVal" class="font-mono font-600 text-sm sand">
-          {% if c.isk_hour is not none %}{{ '{:,.0f}'.format(c.isk_hour / 1e3) }}K{% else %}—{% endif %}
-        </p>
-        <p id="statIskHourSub" class="text-dune-muted text-xs font-display mt-0.5 truncate">{{ c.activity_type or '—' }}</p>
-      </div>
-
-      <div class="card p-3">
-        <p class="label mb-1.5">Gains / Hour</p>
-        <p class="font-mono font-600 text-sm {% if c.wealth_isk_hour and c.wealth_isk_hour > 0 %}sec-high{% elif c.wealth_isk_hour and c.wealth_isk_hour < 0 %}spice{% else %}text-dune-muted{% endif %}">
-          {% if c.wealth_isk_hour is not none %}{{ '{:+,.0f}'.format(c.wealth_isk_hour / 1e3) }}K{% else %}—{% endif %}
-        </p>
-        <p class="text-dune-muted text-xs font-mono mt-0.5">wealth/hr</p>
-      </div>
-
-      <div class="card p-3">
-        <p class="label mb-1.5">Collection / hr</p>
-        {% if collection_isk_hr is not none %}
-        <p class="font-mono font-600 text-sm sec-high">{{ '{:,.0f}'.format(collection_isk_hr / 1e3) }}K</p>
-        <p class="text-dune-muted text-xs font-mono mt-0.5">est. loot/hr</p>
-        {% else %}
-        <p class="font-mono font-600 text-sm text-dune-muted">—</p>
-        <p class="text-dune-muted text-xs font-mono mt-0.5">no active session</p>
-        {% endif %}
-      </div>
-
-    </div>
+  <!-- Card 4: Clone -->
+  <div class="card p-2.5">
+    <p class="label mb-1">Clone</p>
+    <p id="cloneValue" class="font-mono font-600 text-sm sand">…</p>
+    <p id="cloneSub" class="text-dune-muted text-xs font-mono mt-0.5">implant value</p>
   </div>
 
-  <div class="hidden lg:block w-px self-stretch" style="background:#2a2d35"></div>
+  <!-- Card 5: Training -->
+  <div class="card p-2.5">
+    <p class="label mb-1">Training</p>
+    <p id="trainingSkill" class="font-display font-600 text-dune-bright text-sm truncate">…</p>
+    <p id="trainingSub" class="text-dune-muted text-xs font-mono mt-0.5">loading</p>
+  </div>
 
-  <!-- WEALTH -->
-  <div class="flex-1 min-w-0">
-    <p class="mb-2 font-mono text-xs tracking-widest" style="color:#3a3e46">WEALTH</p>
-    <div class="grid grid-cols-2 gap-3">
-
-      <div class="card p-3">
-        <p class="label mb-1.5">Est. Value</p>
-        <p class="font-mono font-600 text-sm sand">
-          {% if c.estimated_value %}{{ '{:,.2f}'.format(c.estimated_value / 1e9) }}B{% else %}—{% endif %}
-        </p>
-        <p class="text-dune-muted text-xs font-mono mt-0.5">ISK total</p>
-      </div>
-
-      <div class="card p-3 {% if c.at_risk_value and c.at_risk_value > 0 %}border-dune-spice{% endif %}">
-        <p class="label mb-1.5" {% if c.at_risk_value and c.at_risk_value > 0 %}style="color:#d4742a"{% endif %}>
-          {% if c.at_risk_value and c.at_risk_value > 0 %}⚠ At Risk{% else %}At Risk{% endif %}
-        </p>
-        <p class="font-mono font-600 text-sm {% if c.at_risk_value and c.at_risk_value > 0 %}spice{% else %}text-dune-muted{% endif %}">
-          {% if c.at_risk_value and c.at_risk_value > 0 %}{{ '{:,.0f}'.format(c.at_risk_value / 1e6) }}M{% else %}—{% endif %}
-        </p>
-        <p class="text-dune-muted text-xs font-mono mt-0.5">in space</p>
-      </div>
-
-    </div>
+  <!-- Card 6: Total Wealth -->
+  <div class="card p-2.5">
+    <p class="label mb-1">Total Wealth</p>
+    <p class="font-mono font-600 text-sm sand">
+      {% if c.estimated_value %}{{ '{:,.2f}'.format(c.estimated_value / 1e9) }}B{% else %}—{% endif %}
+    </p>
+    <p class="text-dune-muted text-xs font-mono mt-0.5">wallet + assets</p>
   </div>
 
 </div>
 
+<!-- ── Finances ── -->
+<div class="border-t border-dune-border my-2 pt-2">
+<p class="label text-xs mb-2 tracking-widest" style="color:#4a5568">FINANCES</p>
+<div class="grid grid-cols-2 gap-2 mb-2">
+
+  <div class="card p-2.5">
+    <p class="label mb-1">Wallet</p>
+    <p class="font-mono font-600 text-dune-bright text-sm">
+      {{ c.wallet_balance | fmt_isk if c.wallet_balance is not none else '—' }}
+    </p>
+    <p class="text-dune-muted text-xs font-mono mt-0.5">ISK</p>
+  </div>
+
+  <div class="card p-2.5">
+    <p class="label mb-1">ISK / Hour</p>
+    <p id="statIskHourVal" class="font-mono font-600 text-sm sand">
+      {% if c.isk_hour is not none %}{{ '{:,.0f}'.format(c.isk_hour / 1e3) }}K{% else %}—{% endif %}
+    </p>
+    <p id="statIskHourSub" class="text-dune-muted text-xs font-display mt-0.5 truncate">{{ c.activity_type or '—' }}</p>
+  </div>
+
+</div>
+</div><!-- /finances section -->
+
 <!-- Escrow breakdown panel -->
-<div class="card p-4 mb-6" id="escrowPanel">
+<div class="card p-3 mb-4" id="escrowPanel">
   <div class="flex items-center justify-between mb-3">
     <p class="label">ISK in Escrow</p>
     <span id="escrowTotal" class="font-mono text-sm sand">loading…</span>
@@ -339,11 +293,11 @@
   <div class="lg:col-span-2 flex flex-col gap-3">
     <div class="card p-4">
       <p class="label mb-3">Wallet Balance</p>
-      <canvas id="walletChart" height="90"></canvas>
+      <div id="walletChart"></div>
     </div>
     <div class="card p-4">
       <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-        <p id="iskTimelineLabel" class="label">ISK / Hour — 20 Min Intervals</p>
+        <p id="iskTimelineLabel" class="label">ISK Earned (bars) · 60-Min Rolling ISK/hr (line)</p>
         <div class="flex gap-1">
           <button id="tl-btn-20min" onclick="switchTimelineView('20min')"
             class="tl-btn font-mono text-xs px-2.5 py-1 rounded-sm border transition-colors"
@@ -366,14 +320,14 @@
         <span><span style="color:#d4742a">▲</span> Undock</span>
         <span><span style="color:#8a6eab">★</span> Ship</span>
       </div>
-      <canvas id="iskTimelineChart" height="80"></canvas>
+      <div id="iskTimelineChart"></div>
     </div>
   </div>
   <div class="card p-4 flex flex-col">
     <p class="label mb-1">ISK Sources</p>
     <p class="font-mono text-dune-muted mb-3" style="font-size:0.6rem">click segment to drill down</p>
     <div class="flex-1 flex items-center justify-center" style="min-height:180px;position:relative">
-      <canvas id="activityChart"></canvas>
+      <div id="activityChart" style="min-height:200px"></div>
     </div>
   </div>
 </div>
@@ -606,10 +560,7 @@ const SAND   = '#c8a96e', SPICE = '#d4742a', MUTED = '#6b7280';
 const BORDER = '#2a2d35', TEXT  = '#c9cdd6';
 const C1 = '#5a9e6f', C2 = '#4a7fa0', C3 = '#8a6eab', C4 = '#9e7040';
 
-Chart.defaults.color         = MUTED;
-Chart.defaults.borderColor   = BORDER;
-Chart.defaults.font.family   = 'Share Tech Mono';
-Chart.defaults.font.size     = 11;
+// ApexCharts — no global defaults needed, configured per chart
 
 function toggleSection(id) {
   const el  = document.getElementById(id);
@@ -640,26 +591,27 @@ const RANGES = {
   }},
 };
 
+// isk_hour_trade column repurposed for Missions (trading is not an ISK faucet)
 const SOURCES = [
-  { key:'bounty',   label:'Combat',   color:C1 },
-  { key:'trade',    label:'Trading',  color:C2 },
-  { key:'industry', label:'Industry', color:C3 },
-  { key:'other',    label:'Other',    color:C4 },
+  { key:'bounty', label:'Combat',          color:C1 },
+  { key:'trade',  label:'Missions/Events', color:C2 },
+  { key:'other',  label:'Other',           color:C4 },
 ];
 
 let currentRange  = 'week';
 let activeSource  = null;
 let currentSnaps  = [];
-let walletInst, iskHourInst, activityInst;
+let walletInst, activityInst;
 
 function updateIskDrilldown() {
   const src = SOURCES.find(s => s.key === activeSource);
-  // Dim unselected doughnut segments
+  // Dim unselected donut segments via ApexCharts updateOptions
   if (activityInst) {
-    activityInst.data.datasets[0].backgroundColor = SOURCES.map(s =>
-      activeSource === null || s.key === activeSource ? s.color : s.color + '30'
-    );
-    activityInst.update();
+    activityInst.updateOptions({
+      colors: SOURCES.map(s =>
+        activeSource === null || s.key === activeSource ? s.color : s.color + '30'
+      ),
+    });
   }
   // Update ISK/Hour stat card
   const cardVal = document.getElementById('statIskHourVal');
@@ -672,8 +624,8 @@ function updateIskDrilldown() {
       cardSub.style.color = src.color;
     } else {
       const latest = currentSnaps.at(-1);
-      cardVal.textContent = latest.isk_hour != null ? (latest.isk_hour / 1e3).toFixed(0) + 'K' : '—';
-      cardSub.textContent = latest.activity_type || '—';
+      cardVal.textContent = latest?.isk_hour != null ? (latest.isk_hour / 1e3).toFixed(0) + 'K' : '—';
+      cardSub.textContent = latest?.activity_type || '—';
       cardSub.style.color = '';
     }
   }
@@ -685,41 +637,70 @@ function updateIskDrilldown() {
   }
 }
 
+const _apexBase = {
+  background: 'transparent',
+  toolbar: { show: false },
+  zoom: { enabled: false },
+  fontFamily: 'Share Tech Mono, monospace',
+  foreColor: MUTED,
+  animations: { enabled: false },
+};
+
 async function loadCharts() {
   const { days, gran, fmtLabel } = RANGES[currentRange];
   const snaps = await (await fetch(`/api/c/${CID}/history?days=${days}&granularity=${gran}`)).json();
   currentSnaps = snaps;
   const labels = snaps.map(fmtLabel);
 
-  const baseOpts = { plugins:{ legend:{ display:false } },
-    scales:{ x:{ ticks:{ maxTicksLimit:8, color:MUTED }, grid:{ color:'rgba(42,45,53,0.8)' } },
-             y:{ ticks:{ callback:v=>(v/1e6).toFixed(0)+'M', color:MUTED }, grid:{ color:'rgba(42,45,53,0.8)' } } } };
-
+  // ── Wallet balance chart ──
   walletInst?.destroy();
+  walletInst = new ApexCharts(document.getElementById('walletChart'), {
+    chart: { ..._apexBase, type: 'area', height: 140 },
+    series: [{ name: 'Wallet', data: snaps.map(s => s.wallet_balance) }],
+    xaxis: {
+      categories: labels, tickAmount: 8,
+      labels: { style: { colors: MUTED, fontSize: '10px' } },
+      axisBorder: { color: BORDER }, axisTicks: { color: BORDER },
+    },
+    yaxis: { labels: { formatter: v => (v/1e6).toFixed(0)+'M', style: { colors: MUTED, fontSize: '10px' } } },
+    stroke: { curve: 'smooth', width: 2, colors: [SAND] },
+    fill: { type: 'gradient', gradient: { opacityFrom: 0.15, opacityTo: 0.02 }, colors: [SAND] },
+    colors: [SAND],
+    grid: { borderColor: BORDER, strokeDashArray: 3 },
+    tooltip: { theme: 'dark', y: { formatter: v => fmt(v) + ' ISK' } },
+    dataLabels: { enabled: false },
+    legend: { show: false },
+  });
+  walletInst.render();
+
+  // ── ISK Sources donut ──
+  const totals = SOURCES.map(src => snaps.reduce((a, s) => a + (s[`isk_hour_${src.key}`] ?? 0), 0));
   activityInst?.destroy();
-
-  walletInst = new Chart(document.getElementById('walletChart'), { type:'line', data:{ labels,
-    datasets:[{ data:snaps.map(s => s.wallet_balance), borderWidth:1.5,
-      pointRadius:snaps.length<30?2:0, fill:true, tension:0.4,
-      segment:{
-        borderColor: ctx => ctx.p1.parsed.y > ctx.p0.parsed.y ? '#5a9e6f' : '#9e4040',
-        backgroundColor: ctx => ctx.p1.parsed.y > ctx.p0.parsed.y ? 'rgba(90,158,111,0.07)' : 'rgba(158,64,64,0.07)',
-      }}]}, options:baseOpts });
-
-  const totals = SOURCES.map(src => snaps.reduce((a,s) => a+(s[`isk_hour_${src.key}`]??0), 0));
-  activityInst = new Chart(document.getElementById('activityChart'), { type:'doughnut',
-    data:{ labels: SOURCES.map(s => s.label),
-      datasets:[{ data: totals,
-        backgroundColor: SOURCES.map(s => activeSource === null || s.key === activeSource ? s.color : s.color + '30'),
-        borderColor:'#1c1f24', borderWidth:2, hoverOffset:6 }]},
-    options:{ maintainAspectRatio:false, onClick:(e, els) => {
-        if (!els.length) return;
-        const clicked = SOURCES[els[0].index].key;
-        activeSource = activeSource === clicked ? null : clicked;
-        updateIskDrilldown();
+  activityInst = new ApexCharts(document.getElementById('activityChart'), {
+    chart: {
+      ..._apexBase, type: 'donut', height: 240,
+      events: {
+        dataPointSelection: (_e, _ctx, config) => {
+          const clicked = SOURCES[config.dataPointIndex].key;
+          activeSource = activeSource === clicked ? null : clicked;
+          updateIskDrilldown();
+        },
       },
-      plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, padding:12,
-        color:MUTED, font:{ size:10 } } } }, cutout:'68%' } });
+    },
+    series: totals,
+    labels: SOURCES.map(s => s.label),
+    colors: SOURCES.map(s => activeSource === null || s.key === activeSource ? s.color : s.color + '30'),
+    stroke: { colors: ['#1c1f24'], width: 2 },
+    plotOptions: { pie: { donut: { size: '68%' }, expandOnClick: false } },
+    dataLabels: { enabled: false },
+    legend: {
+      position: 'bottom', labels: { colors: MUTED }, fontSize: '10px',
+      itemMargin: { horizontal: 8 }, markers: { width: 10, height: 10, radius: 2 },
+    },
+    tooltip: { theme: 'dark', y: { formatter: v => fmt(v) } },
+  });
+  activityInst.render();
+  updateIskDrilldown();
 }
 
 // ── ISK Timeline ────────────────────────────────────────────────────────────
@@ -727,6 +708,9 @@ let iskTimelineInst = null;
 let tlView = '20min';
 let tlHours = 24;
 let _tlData = null;
+
+const _EV_COLORS = { login:'#5a9e6f', logout:'#c05050', jump:'#c8a96e', dock:'#4a7fa0', undock:'#d4742a', ship:'#8a6eab' };
+const _EV_SHAPES = { login:'▶', logout:'◼', jump:'◆', dock:'▼', undock:'▲', ship:'★' };
 
 function switchTimelineView(view) {
   tlView = view;
@@ -739,7 +723,7 @@ function switchTimelineView(view) {
   document.getElementById('tl-range-bar').style.display = is20 ? 'flex' : 'none';
   document.getElementById('tl-legend').style.display    = is20 ? 'flex' : 'none';
   document.getElementById('iskTimelineLabel').textContent =
-    is20 ? 'ISK / Hour — 20 Min Intervals' : 'ISK / Hour — By Session';
+    is20 ? 'ISK Earned (bars) · 60-Min Rolling ISK/hr (line)' : 'ISK / Hour — By Session';
   if (_tlData) renderTimeline(_tlData);
 }
 
@@ -753,128 +737,147 @@ function setTimelineHours(h) {
   loadTimeline();
 }
 
-function makeBlipPlugin(events) {
-  const COLORS = { login:'#5a9e6f', logout:'#c05050', jump:'#c8a96e', dock:'#4a7fa0', undock:'#d4742a', ship:'#8a6eab' };
-  const SHAPES = { login:'▶', logout:'◼', jump:'◆', dock:'▼', undock:'▲', ship:'★' };
-  return {
-    id: 'blips',
-    afterDraw(chart) {
-      if (!events || !events.length) return;
-      const ctx  = chart.ctx;
-      const meta = chart.getDatasetMeta(0);
-      if (!meta || !meta.data.length) return;
-      const top = chart.scales.y.top + 5;
-      const byBucket = {};
-      events.forEach(ev => {
-        if (!byBucket[ev.bucket_index]) byBucket[ev.bucket_index] = [];
-        byBucket[ev.bucket_index].push(ev);
-      });
-      ctx.save();
-      ctx.font = 'bold 9px "Share Tech Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      Object.entries(byBucket).forEach(([bi, evs]) => {
-        const bar = meta.data[parseInt(bi)];
-        if (!bar) return;
-        evs.forEach((ev, i) => {
-          ctx.fillStyle = COLORS[ev.type] || SAND;
-          ctx.fillText(SHAPES[ev.type] || '●', bar.x, top + i * 11);
-        });
-      });
-      ctx.restore();
-    }
-  };
+/** Rolling ISK/hr over a windowSize × 20-min sliding window */
+function rollingIskHr(buckets, windowSize) {
+  return buckets.map((b, i) => {
+    const slice = buckets.slice(Math.max(0, i - windowSize + 1), i + 1);
+    const totalEarned  = slice.reduce((sum, x) => sum + (x.isk_earned || 0), 0);
+    const totalMinutes = slice.length * 20;
+    return totalMinutes > 0 ? Math.round((totalEarned / totalMinutes) * 60) : 0;
+  });
+}
+
+/** Build xaxis annotations for event blips (grouped per bucket) */
+function buildEventAnnotations(events, buckets) {
+  const grouped = {};
+  (events || []).forEach(ev => {
+    if (!grouped[ev.bucket_index]) grouped[ev.bucket_index] = [];
+    grouped[ev.bucket_index].push(ev);
+  });
+  return Object.entries(grouped).map(([bi, evs]) => {
+    const bucket = buckets[parseInt(bi)];
+    if (!bucket) return null;
+    return {
+      x: bucket.label,
+      borderColor: (_EV_COLORS[evs[0].type] || SAND) + '70',
+      borderWidth: 1,
+      label: {
+        text: evs.map(e => _EV_SHAPES[e.type] || '●').join(''),
+        position: 'top',
+        offsetY: 0,
+        style: {
+          color: _EV_COLORS[evs[0].type] || SAND,
+          background: '#16181c',
+          border: 0,
+          fontSize: '9px',
+          fontFamily: 'Share Tech Mono, monospace',
+          padding: { top: 1, right: 3, bottom: 1, left: 3 },
+        },
+      },
+    };
+  }).filter(Boolean);
 }
 
 function renderTimeline(data) {
   iskTimelineInst?.destroy();
   iskTimelineInst = null;
-  const canvas = document.getElementById('iskTimelineChart');
-  const baseOpts = {
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { ticks: { maxTicksLimit: 12, color: MUTED }, grid: { color: 'rgba(42,45,53,0.8)' } },
-      y: { ticks: { callback: v => fmt(v), color: MUTED }, grid: { color: 'rgba(42,45,53,0.8)' } }
-    }
-  };
+  const el = document.getElementById('iskTimelineChart');
 
   if (tlView === '20min') {
-    const buckets = data.buckets;
-    const values  = buckets.map(b => b.isk_hour);
-    iskTimelineInst = new Chart(canvas, {
-      type: 'line',
-      plugins: [makeBlipPlugin(data.events)],
-      data: {
-        labels: buckets.map(b => b.label),
-        datasets: [{
-          data: values,
-          borderColor: SAND,
-          borderWidth: 1.5,
-          backgroundColor: 'rgba(200,169,110,0.08)',
-          fill: true,
-          tension: 0.35,
-          pointRadius: 0,
-          pointHoverRadius: 3,
-          segment: {
-            borderColor: ctx => ctx.p1.parsed.y >= 0 ? SAND : SPICE,
-          },
-        }]
+    const buckets = data.buckets || [];
+    const earned  = buckets.map(b => b.isk_earned || 0);
+    const avgLine = rollingIskHr(buckets, 3); // 3 × 20 min = 60-min rolling window
+    const annots  = buildEventAnnotations(data.events, buckets);
+
+    iskTimelineInst = new ApexCharts(el, {
+      chart: { ..._apexBase, type: 'bar', height: 200 },
+      series: [
+        { name: 'ISK Earned',        type: 'column', data: earned },
+        { name: 'ISK/hr (60m avg)',  type: 'line',   data: avgLine },
+      ],
+      xaxis: {
+        categories: buckets.map(b => b.label),
+        tickAmount: 12,
+        labels: { style: { colors: MUTED, fontSize: '10px' } },
+        axisBorder: { color: BORDER }, axisTicks: { color: BORDER },
       },
-      options: {
-        ...baseOpts,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              title: ctx => {
-                const bi  = ctx[0].dataIndex;
-                const b   = data.buckets[bi];
-                const evs = data.events.filter(e => e.bucket_index === bi).map(e => e.label);
-                return evs.length ? `${b.label}  ·  ${evs.join('  |  ')}` : b.label;
-              },
-              label: ctx => {
-                const b = data.buckets[ctx.dataIndex];
-                return [`ISK/hr: ${fmt(ctx.raw)}`, `Earned: ${fmt(b.isk_earned)}`];
-              }
-            }
-          }
-        }
-      }
+      yaxis: [
+        { labels: { formatter: v => fmt(v),        style: { colors: MUTED, fontSize: '10px' } } },
+        { opposite: true, labels: { formatter: v => fmt(v)+'/hr', style: { colors: SAND,  fontSize: '10px' } }, show: false },
+      ],
+      colors: ['rgba(200,169,110,0.55)', SAND],
+      stroke: { width: [0, 2], curve: 'smooth', colors: [SAND, SAND] },
+      fill:   { opacity: [0.85, 1] },
+      plotOptions: { bar: { columnWidth: '60%', borderRadius: 2 } },
+      grid: { borderColor: BORDER, strokeDashArray: 3 },
+      annotations: { xaxis: annots },
+      legend: {
+        show: true, position: 'top', labels: { colors: [MUTED, SAND] },
+        markers: { width: 10, height: 10, radius: 2 }, fontSize: '10px',
+      },
+      tooltip: {
+        shared: true, intersect: false, theme: 'dark',
+        custom: function({ series, dataPointIndex }) {
+          const b   = buckets[dataPointIndex] || {};
+          const evs = (data.events || []).filter(e => e.bucket_index === dataPointIndex).map(e => e.label);
+          const hdr = evs.length ? `${b.label || ''} · ${evs.join(' | ')}` : (b.label || '');
+          return `<div style="padding:8px 10px;font-family:Share Tech Mono,monospace;font-size:11px;background:#1c1f24;border:1px solid ${BORDER}">
+            <div style="color:${MUTED};margin-bottom:4px">${hdr}</div>
+            <div style="color:${SAND}">Earned: ${fmt(series[0][dataPointIndex] || 0)}</div>
+            <div style="color:${SAND}">60m rolling ISK/hr: ${fmt(series[1][dataPointIndex] || 0)}</div>
+          </div>`;
+        },
+      },
+      dataLabels: { enabled: false },
     });
+    iskTimelineInst.render();
+
   } else {
-    const sessions = data.sessions;
+    // Sessions view — ISK/hr bar per session
+    const sessions = data.sessions || [];
     if (!sessions.length) {
-      canvas.style.display = 'none'; return;
+      el.innerHTML = `<p style="color:${MUTED};font-size:11px;padding:16px;font-family:Share Tech Mono,monospace">No sessions in range.</p>`;
+      return;
     }
-    canvas.style.display = '';
-    iskTimelineInst = new Chart(canvas, {
-      type: 'bar',
-      data: {
-        labels: sessions.map(s => s.label + (s.active ? ' ●' : '')),
-        datasets: [{
-          data: sessions.map(s => s.isk_hour),
-          backgroundColor: sessions.map(s => s.active ? 'rgba(90,158,111,0.65)' : 'rgba(200,169,110,0.45)'),
-          borderColor:     sessions.map(s => s.active ? '#5a9e6f' : SAND),
-          borderWidth:     sessions.map(s => s.active ? 1 : 0),
-        }]
+
+    iskTimelineInst = new ApexCharts(el, {
+      chart: { ..._apexBase, type: 'bar', height: 200 },
+      series: [{
+        name: 'ISK/hr',
+        data: sessions.map(s => ({
+          x: s.label + (s.active ? ' ●' : ''),
+          y: s.isk_hour || 0,
+          fillColor:   s.active ? '#5a9e6f' : 'rgba(200,169,110,0.55)',
+          strokeColor: s.active ? '#5a9e6f' : SAND,
+        })),
+      }],
+      xaxis: {
+        type: 'category',
+        labels: { style: { colors: MUTED, fontSize: '10px' }, rotate: -30 },
+        axisBorder: { color: BORDER }, axisTicks: { color: BORDER },
       },
-      options: {
-        ...baseOpts,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: ctx => {
-                const s = data.sessions[ctx.dataIndex];
-                const lines = [`ISK/hr: ${fmt(s.isk_hour)}`, `Earned: ${fmt(s.isk_earned)}`, `Duration: ${s.duration_h.toFixed(1)}h`];
-                if (s.active) lines.push('● ACTIVE SESSION');
-                return lines;
-              }
-            }
-          }
-        }
-      }
+      yaxis: { labels: { formatter: v => fmt(v)+'/hr', style: { colors: MUTED, fontSize: '10px' } } },
+      plotOptions: { bar: { distributed: true, columnWidth: '65%', borderRadius: 2 } },
+      grid: { borderColor: BORDER, strokeDashArray: 3 },
+      legend: { show: false },
+      colors: [SAND],
+      tooltip: {
+        theme: 'dark',
+        custom: function({ dataPointIndex }) {
+          const s = sessions[dataPointIndex] || {};
+          const activeTag = s.active ? `<div style="color:#5a9e6f">● ACTIVE</div>` : '';
+          return `<div style="padding:8px 10px;font-family:Share Tech Mono,monospace;font-size:11px;background:#1c1f24;border:1px solid ${BORDER};color:${SAND}">
+            <div style="color:${MUTED};margin-bottom:4px">${s.label || ''}</div>
+            <div>ISK/hr: ${fmt(s.isk_hour || 0)}</div>
+            <div>Earned: ${fmt(s.isk_earned || 0)}</div>
+            <div>Duration: ${(s.duration_h || 0).toFixed(1)}h</div>
+            ${activeTag}
+          </div>`;
+        },
+      },
+      dataLabels: { enabled: false },
     });
+    iskTimelineInst.render();
   }
 }
 
@@ -1318,5 +1321,47 @@ async function loadEscrow() {
 }
 
 loadEscrow();
+
+async function loadClone() {
+  try {
+    const res = await fetch(`/api/c/{{ cid }}/clone`);
+    const d = await res.json();
+
+    const fmt = v => v >= 1e9 ? (v/1e9).toFixed(2)+'B'
+                   : v >= 1e6 ? (v/1e6).toFixed(1)+'M'
+                   : v >= 1e3 ? (v/1e3).toFixed(0)+'K'
+                   : v.toFixed(0);
+
+    // Clone card
+    if (d.implant_value > 0) {
+      document.getElementById('cloneValue').textContent = fmt(d.implant_value);
+      document.getElementById('cloneSub').textContent =
+        `${d.implant_count} implant${d.implant_count !== 1 ? 's' : ''}`;
+    } else {
+      document.getElementById('cloneValue').textContent = '—';
+      document.getElementById('cloneSub').textContent = 'no implants';
+    }
+
+    // Training card
+    if (d.training) {
+      const t = d.training;
+      document.getElementById('trainingSkill').textContent = t.skill_name;
+      const label = t.hours_remaining >= 24
+        ? `Lv ${t.trained_level} — ${(t.hours_remaining/24).toFixed(1)}d`
+        : `Lv ${t.trained_level} — ${t.hours_remaining.toFixed(1)}h`;
+      document.getElementById('trainingSub').textContent = label;
+    } else {
+      document.getElementById('trainingSkill').textContent = '—';
+      document.getElementById('trainingSub').textContent = 'not training';
+    }
+  } catch(e) {
+    document.getElementById('cloneValue').textContent = '—';
+    document.getElementById('trainingSkill').textContent = '—';
+    document.getElementById('cloneSub').textContent = '';
+    document.getElementById('trainingSub').textContent = 'unavailable';
+  }
+}
+
+loadClone();
 </script>
 {% endblock %}

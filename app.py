@@ -955,6 +955,58 @@ def api_escrow(character_id: int):
     }
 
 
+@app.get("/api/c/{character_id}/clone")
+def api_clone(character_id: int):
+    """Return active clone implant value and current skill training."""
+    token = auth.get_valid_token(character_id)
+    esi   = ESIClient(access_token=token)
+    try:
+        implants   = _safe_esi(lambda: esi.get_implants(character_id))   or []
+        skillqueue = _safe_esi(lambda: esi.get_skillqueue(character_id)) or []
+        prices_raw = _safe_esi(lambda: esi.get_market_prices())          or []
+    finally:
+        esi.close()
+
+    price_map     = {p["type_id"]: p.get("adjusted_price", 0.0) for p in prices_raw}
+    implant_value = round(sum(price_map.get(tid, 0.0) for tid in implants), 2)
+
+    # Find the currently-training skill (earliest finish_date in the future)
+    now = datetime.now(timezone.utc)
+    training = None
+    for entry in sorted(skillqueue, key=lambda e: e.get("queue_position", 99)):
+        fd = entry.get("finish_date")
+        if not fd:
+            continue
+        try:
+            finish = datetime.fromisoformat(fd.replace("Z", "+00:00"))
+            if finish > now:
+                hours_remaining = round((finish - now).total_seconds() / 3600, 1)
+                # Try to resolve skill name from our local store
+                skill_name = None
+                row = store.conn.execute(
+                    "SELECT skill_name FROM skills WHERE character_id=? AND skill_id=? AND skill_name IS NOT NULL",
+                    (character_id, entry["skill_id"])
+                ).fetchone()
+                if row:
+                    skill_name = row[0]
+                training = {
+                    "skill_id":       entry["skill_id"],
+                    "skill_name":     skill_name or f"Skill {entry['skill_id']}",
+                    "trained_level":  entry.get("finished_level", entry.get("level", 1)),
+                    "finish_date":    fd,
+                    "hours_remaining": hours_remaining,
+                }
+                break
+        except Exception:
+            continue
+
+    return {
+        "implant_count": len(implants),
+        "implant_value": implant_value,
+        "training":      training,
+    }
+
+
 @app.post("/api/c/{character_id}/track-item")
 async def api_track_item(request: Request, character_id: int):
     body = await request.json()
