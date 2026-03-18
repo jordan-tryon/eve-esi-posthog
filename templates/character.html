@@ -306,7 +306,7 @@
       </div>
       <div style="position:relative">
         <div id="iskTimelineChart"></div>
-        <div id="timelineEvents" style="position:relative;height:26px;overflow:visible"></div>
+        <div id="timelineEvents" style="position:relative;min-height:44px;overflow:visible"></div>
       </div>
     </div>
   </div>
@@ -734,10 +734,36 @@ function rollingIskHr(buckets, windowSize) {
   });
 }
 
+// ── Event badge tooltip ──────────────────────────────────────────────────────
+const _evTip = (() => {
+  const el = document.createElement('div');
+  el.style.cssText = [
+    'display:none', 'position:fixed', 'z-index:9999',
+    `background:#1c1f24`, `border:1px solid ${BORDER}`,
+    'border-radius:4px', 'padding:4px 9px',
+    `font-family:Share Tech Mono,monospace`, 'font-size:11px',
+    `color:${TEXT}`, 'pointer-events:none', 'white-space:nowrap',
+    'box-shadow:0 2px 8px rgba(0,0,0,0.6)',
+  ].join(';');
+  document.body.appendChild(el);
+  return el;
+})();
+function _showEvTip(e, label, color) {
+  _evTip.textContent = label;
+  _evTip.style.color  = color;
+  _evTip.style.display = 'block';
+  _moveEvTip(e);
+}
+function _moveEvTip(e) {
+  _evTip.style.left = (e.clientX + 14) + 'px';
+  _evTip.style.top  = (e.clientY - 32) + 'px';
+}
+function _hideEvTip() { _evTip.style.display = 'none'; }
+
 /**
- * Render event badges into the #timelineEvents row below the chart.
- * Uses chart.w.globals for pixel-accurate alignment with bars.
- * Called from chart.events.mounted / updated.
+ * Render event badges into #timelineEvents below the chart.
+ * Max 3 badges per row; excess events wrap to a second row.
+ * Uses chart.w.globals for pixel-accurate bar alignment.
  */
 function _renderEventRow(ctx, events, buckets) {
   const row = document.getElementById('timelineEvents');
@@ -746,10 +772,11 @@ function _renderEventRow(ctx, events, buckets) {
   if (!events?.length || !buckets.length) return;
 
   const g = ctx.w.globals;
-  if (!g.gridWidth) return;  // chart not laid out yet — skip
-  const barWidth = g.gridWidth / buckets.length;
+  if (!g.gridWidth) return;
+  const barWidth  = g.gridWidth / buckets.length;
+  const ROW_H     = 20;
+  const MAX_COL   = 3;
 
-  // Group events by bucket_index
   const grouped = {};
   (events || []).forEach(ev => {
     if (!grouped[ev.bucket_index]) grouped[ev.bucket_index] = [];
@@ -758,31 +785,41 @@ function _renderEventRow(ctx, events, buckets) {
 
   Object.entries(grouped).forEach(([bi, evs]) => {
     const centerX = g.translateX + (parseInt(bi) + 0.5) * barWidth;
+
     evs.forEach((ev, i) => {
-      // Spread multiple events at the same bucket horizontally
-      const spread = evs.length > 1 ? (i - (evs.length - 1) / 2) * 15 : 0;
+      const rowIdx      = Math.floor(i / MAX_COL);
+      const colIdx      = i % MAX_COL;
+      const countInRow  = Math.min(evs.length - rowIdx * MAX_COL, MAX_COL);
+      // Centre the badges within their row
+      const spread = countInRow > 1 ? (colIdx - (countInRow - 1) / 2) * 14 : 0;
+      const topPx  = 3 + rowIdx * ROW_H;
+
       const color = _EV_COLORS[ev.type] || SAND;
       const shape = _EV_SHAPES[ev.type] || '●';
+      const label = ev.label || ev.type;
+
       const badge = document.createElement('span');
       badge.style.cssText = [
-        `position:absolute`,
+        'position:absolute',
         `left:${centerX + spread}px`,
-        `transform:translateX(-50%)`,
-        `top:3px`,
+        'transform:translateX(-50%)',
+        `top:${topPx}px`,
         `color:${color}`,
-        `font-size:10px`,
+        'font-size:10px',
         `font-family:Share Tech Mono,monospace`,
-        `background:#1c1f24`,
+        'background:#1c1f24',
         `border:1px solid ${color}70`,
-        `border-radius:3px`,
-        `padding:1px 4px`,
-        `cursor:default`,
-        `white-space:nowrap`,
-        `line-height:1.4`,
-        `z-index:10`,
+        'border-radius:3px',
+        'padding:1px 4px',
+        'cursor:default',
+        'white-space:nowrap',
+        'line-height:1.4',
+        'z-index:10',
       ].join(';');
       badge.textContent = shape;
-      badge.title = ev.label || ev.type;  // native hover tooltip
+      badge.addEventListener('mouseenter', e => _showEvTip(e, label, color));
+      badge.addEventListener('mousemove',  _moveEvTip);
+      badge.addEventListener('mouseleave', _hideEvTip);
       row.appendChild(badge);
     });
   });
