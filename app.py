@@ -3,7 +3,7 @@
 import os
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 load_dotenv()
 
 from src.eve_client.analytics import Analytics
+from src.eve_client.asset_tracker import run_asset_tracking
 from src.eve_client.auth import EveAuth
 from src.eve_client.esi import ESIClient
 from src.eve_client.hourly_pipeline import run_hourly_snapshot
@@ -73,18 +74,36 @@ def _make_sync_fn(character_id: int):
     return _sync
 
 
+def _make_asset_fn(character_id: int):
+    def _track():
+        try:
+            run_asset_tracking(character_id, auth, store)
+        except Exception as e:
+            print(f"[asset_tracker] Error for {character_id}: {e}")
+    return _track
+
+
 def register_character_job(character_id: int, run_now: bool = True):
     job_id = f"sync_{character_id}"
-    if scheduler.get_job(job_id):
-        return
-    scheduler.add_job(
-        _make_sync_fn(character_id),
-        trigger=IntervalTrigger(hours=1),
-        id=job_id,
-        next_run_time=datetime.now(timezone.utc) if run_now else None,
-    )
-    _sync_jobs[character_id] = {"running": False, "last": None, "error": None}
-    print(f"[scheduler] Registered job for character {character_id}")
+    if not scheduler.get_job(job_id):
+        scheduler.add_job(
+            _make_sync_fn(character_id),
+            trigger=IntervalTrigger(hours=1),
+            id=job_id,
+            next_run_time=datetime.now(timezone.utc) if run_now else None,
+        )
+        _sync_jobs[character_id] = {"running": False, "last": None, "error": None}
+
+    asset_job_id = f"assets_{character_id}"
+    if not scheduler.get_job(asset_job_id):
+        scheduler.add_job(
+            _make_asset_fn(character_id),
+            trigger=IntervalTrigger(minutes=10),
+            id=asset_job_id,
+            next_run_time=datetime.now(timezone.utc) if run_now else None,
+        )
+
+    print(f"[scheduler] Registered jobs for character {character_id}")
 
 
 @asynccontextmanager
@@ -228,6 +247,136 @@ def api_current(character_id: int):
     return store.get_last_snapshot(character_id) or {}
 
 
+def _build_isk_buckets(journal: list, since_dt: datetime, until_dt: datetime,
+                        minutes: int = 20) -> list:
+    bucket_size = timedelta(minutes=minutes)
+    buckets = []
+    t = since_dt
+    while t < until_dt:
+        t_end = min(t + bucket_size, until_dt)
+        earned = 0.0
+        for e in journal:
+            if e["amount"] <= 0:
+                continue
+            try:
+                ed = datetime.fromisoformat(e["date"].replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if t <= ed < t + bucket_size:
+                earned += e["amount"]
+        elapsed_h = (t_end - t).total_seconds() / 3600
+        buckets.append({
+            "start":     t.isoformat(),
+            "label":     t.strftime("%H:%M") if minutes < 60 else t.strftime("%m/%d %H:%M"),
+            "isk_earned": round(earned, 2),
+            "isk_hour":   round(earned / elapsed_h, 2) if elapsed_h > 0 else 0.0,
+        })
+        t += bucket_size
+    return buckets
+
+
+def _extract_timeline_events(snaps: list, sessions: list, buckets: list) -> list:
+    if not buckets:
+        return []
+
+    def _bucket_idx(ts_str: str) -> int:
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            for i, b in enumerate(buckets):
+                b_start = datetime.fromisoformat(b["start"])
+                b_end   = b_start + timedelta(minutes=20)
+                if b_start <= ts < b_end:
+                    return i
+            # clamp to last bucket if after end
+            last = datetime.fromisoformat(buckets[-1]["start"])
+            if ts >= last:
+                return len(buckets) - 1
+        except Exception:
+            pass
+        return -1
+
+    events = []
+    prev = None
+    for snap in snaps:
+        if prev:
+            if snap.get("solar_system_id") != prev.get("solar_system_id"):
+                bi = _bucket_idx(snap["captured_at"])
+                if bi >= 0:
+                    events.append({"bucket_index": bi, "timestamp": snap["captured_at"],
+                                   "type": "jump",
+                                   "label": f"{prev.get('system_name','?')} → {snap.get('system_name','?')}"})
+            prev_docked = prev.get("station_id") or prev.get("structure_id")
+            curr_docked = snap.get("station_id") or snap.get("structure_id")
+            if not prev_docked and curr_docked:
+                bi = _bucket_idx(snap["captured_at"])
+                if bi >= 0:
+                    events.append({"bucket_index": bi, "timestamp": snap["captured_at"],
+                                   "type": "dock", "label": "Docked"})
+            elif prev_docked and not curr_docked:
+                bi = _bucket_idx(snap["captured_at"])
+                if bi >= 0:
+                    events.append({"bucket_index": bi, "timestamp": snap["captured_at"],
+                                   "type": "undock", "label": "Undocked"})
+            if snap.get("ship_type_id") and snap.get("ship_type_id") != prev.get("ship_type_id"):
+                bi = _bucket_idx(snap["captured_at"])
+                if bi >= 0:
+                    events.append({"bucket_index": bi, "timestamp": snap["captured_at"],
+                                   "type": "ship", "label": f"Ship: {snap.get('ship_name','?')}"})
+        prev = snap
+
+    for s in sessions:
+        bi = _bucket_idx(s["started_at"])
+        if bi >= 0:
+            events.append({"bucket_index": bi, "timestamp": s["started_at"],
+                           "type": "login", "label": "Session Start"})
+        if s.get("ended_at"):
+            bi = _bucket_idx(s["ended_at"])
+            if bi >= 0:
+                events.append({"bucket_index": bi, "timestamp": s["ended_at"],
+                               "type": "logout", "label": "Session End"})
+
+    # Deduplicate (same bucket + type), sort chronologically
+    seen: set = set()
+    deduped = []
+    for e in sorted(events, key=lambda x: x["timestamp"]):
+        key = (e["bucket_index"], e["type"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(e)
+    return deduped
+
+
+def _build_session_isk(sessions: list, journal: list) -> list:
+    now = datetime.now(timezone.utc)
+    result = []
+    for s in sessions:
+        start = s["started_at"].replace("Z", "+00:00")
+        end   = s["ended_at"].replace("Z", "+00:00") if s.get("ended_at") else now.isoformat()
+        earned = sum(
+            e["amount"] for e in journal
+            if e["amount"] > 0 and start <= e["date"].replace("Z", "+00:00") < end
+        )
+        try:
+            hours = max((datetime.fromisoformat(end) - datetime.fromisoformat(start))
+                        .total_seconds() / 3600, 0.01)
+        except Exception:
+            hours = 1.0
+        try:
+            label = datetime.fromisoformat(s["started_at"].replace("Z", "+00:00")).strftime("%b %d %H:%M")
+        except Exception:
+            label = s["started_at"][:16]
+        result.append({
+            "label":       label,
+            "started_at":  s["started_at"],
+            "ended_at":    s.get("ended_at"),
+            "isk_earned":  round(earned, 2),
+            "isk_hour":    round(earned / hours, 2),
+            "duration_h":  round(hours, 2),
+            "active":      not bool(s.get("ended_at")),
+        })
+    return result
+
+
 def _aggregate_snaps(snaps: list[dict], granularity: str) -> list[dict]:
     """Bucket hourly snapshots into day/month aggregates for the history API."""
     def bucket(s: dict) -> str:
@@ -262,6 +411,29 @@ def api_history(character_id: int, days: int = 7, granularity: str = "hour"):
     if granularity == "hour":
         return snaps
     return _aggregate_snaps(snaps, granularity)
+
+
+@app.get("/api/c/{character_id}/isk-timeline")
+def api_isk_timeline(character_id: int, hours: int = 24):
+    now      = datetime.now(timezone.utc)
+    since_dt = now - timedelta(hours=hours)
+    since    = since_dt.isoformat()
+
+    journal  = store.get_journal_entries_between(character_id, since, now.isoformat())
+    snaps    = list(reversed(store.get_snapshots_since(character_id, since)))  # chronological
+
+    sessions_rows = store.conn.execute(
+        "SELECT * FROM sessions WHERE character_id=? ORDER BY started_at DESC LIMIT 30",
+        (character_id,),
+    ).fetchall()
+    sessions = [dict(s) for s in reversed(sessions_rows)]  # chronological
+
+    bucket_minutes = 60 if hours > 48 else 20
+    buckets  = _build_isk_buckets(journal, since_dt, now, bucket_minutes)
+    events   = _extract_timeline_events(snaps, [s for s in sessions if s["started_at"] >= since], buckets)
+    session_data = _build_session_isk(sessions, journal)
+
+    return {"buckets": buckets, "events": events, "sessions": session_data}
 
 
 @app.get("/api/c/{character_id}/fitting")

@@ -162,6 +162,15 @@ class SnapshotStore:
                 added_at     TEXT NOT NULL,
                 PRIMARY KEY (character_id, type_id, region_id)
             );
+
+            CREATE TABLE IF NOT EXISTS asset_items (
+                character_id INTEGER NOT NULL,
+                captured_at  TEXT NOT NULL,
+                type_id      INTEGER NOT NULL,
+                type_name    TEXT,
+                quantity     INTEGER NOT NULL,
+                PRIMARY KEY (character_id, captured_at, type_id)
+            );
         """)
         self.conn.commit()
         self._migrate()
@@ -187,6 +196,11 @@ class SnapshotStore:
         tracked_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(tracked_items)").fetchall()}
         if "type_name" not in tracked_cols:
             self.conn.execute("ALTER TABLE tracked_items ADD COLUMN type_name TEXT")
+
+        session_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        for col, typedef in [("assets_gained_value", "REAL"), ("assets_lost_value", "REAL")]:
+            if col not in session_cols:
+                self.conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {typedef}")
 
         self.conn.commit()
 
@@ -415,6 +429,12 @@ class SnapshotStore:
     def save_session_start(self, character_id: int, started_at: str, ship_type_id: int | None,
                            ship_name: str | None, solar_system_id: int | None,
                            system_name: str | None, security_status: float | None) -> int:
+        existing = self.conn.execute(
+            "SELECT id FROM sessions WHERE character_id=? AND started_at=?",
+            (character_id, started_at),
+        ).fetchone()
+        if existing:
+            return existing[0]
         cur = self.conn.execute(
             """INSERT INTO sessions (character_id, started_at, ship_type_id, ship_name,
                solar_system_id, system_name, security_status)
@@ -426,10 +446,17 @@ class SnapshotStore:
         return cur.lastrowid
 
     def close_session(self, character_id: int, started_at: str, ended_at: str, isk_earned: float):
+        # Close the matched session with computed ISK
         self.conn.execute(
             """UPDATE sessions SET ended_at=?, isk_earned=?
                WHERE character_id=? AND started_at=? AND ended_at IS NULL""",
             (ended_at, isk_earned, character_id, started_at),
+        )
+        # Close any other stale open sessions for this character
+        self.conn.execute(
+            """UPDATE sessions SET ended_at=?, isk_earned=0
+               WHERE character_id=? AND ended_at IS NULL""",
+            (ended_at, character_id),
         )
         self.conn.commit()
 
@@ -439,6 +466,51 @@ class SnapshotStore:
             (character_id,),
         ).fetchone()
         return dict(row) if row else None
+
+    def save_asset_snapshot(self, character_id: int, captured_at: str,
+                            aggregated: dict[int, int], names: dict[int, str] | None = None):
+        """Save a full aggregated asset snapshot (type_id → quantity)."""
+        names = names or {}
+        self.conn.executemany(
+            """INSERT OR REPLACE INTO asset_items (character_id, captured_at, type_id, type_name, quantity)
+               VALUES (?, ?, ?, ?, ?)""",
+            [(character_id, captured_at, tid, names.get(tid), qty)
+             for tid, qty in aggregated.items()],
+        )
+        # Keep only the last 20 snapshots per character to avoid unbounded growth
+        self.conn.execute(
+            """DELETE FROM asset_items WHERE character_id=? AND captured_at NOT IN (
+               SELECT DISTINCT captured_at FROM asset_items
+               WHERE character_id=? ORDER BY captured_at DESC LIMIT 20)""",
+            (character_id, character_id),
+        )
+        self.conn.commit()
+
+    def get_last_asset_snapshot(self, character_id: int) -> dict[int, int] | None:
+        """Return the most recent aggregated inventory as {type_id: quantity}."""
+        row = self.conn.execute(
+            "SELECT captured_at FROM asset_items WHERE character_id=? ORDER BY captured_at DESC LIMIT 1",
+            (character_id,),
+        ).fetchone()
+        if not row:
+            return None
+        rows = self.conn.execute(
+            "SELECT type_id, quantity FROM asset_items WHERE character_id=? AND captured_at=?",
+            (character_id, row[0]),
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
+    def accumulate_session_asset_values(self, character_id: int, started_at: str,
+                                         gained: float, lost: float):
+        """Add to the running asset gained/lost totals for an open session."""
+        self.conn.execute(
+            """UPDATE sessions
+               SET assets_gained_value = COALESCE(assets_gained_value, 0) + ?,
+                   assets_lost_value   = COALESCE(assets_lost_value, 0)   + ?
+               WHERE character_id=? AND started_at=? AND ended_at IS NULL""",
+            (gained, lost, character_id, started_at),
+        )
+        self.conn.commit()
 
     def get_sessions(self, character_id: int, limit: int = 10) -> list[dict]:
         rows = self.conn.execute(

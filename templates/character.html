@@ -305,8 +305,31 @@
       <canvas id="walletChart" height="90"></canvas>
     </div>
     <div class="card p-4">
-      <p id="iskHourLabel" class="label mb-3">ISK / Hour</p>
-      <canvas id="iskHourChart" height="60"></canvas>
+      <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <p id="iskTimelineLabel" class="label">ISK / Hour — 20 Min Intervals</p>
+        <div class="flex gap-1">
+          <button id="tl-btn-20min" onclick="switchTimelineView('20min')"
+            class="tl-btn font-mono text-xs px-2.5 py-1 rounded-sm border transition-colors"
+            style="border-color:#c8a96e;color:#c8a96e">20 Min</button>
+          <button id="tl-btn-sessions" onclick="switchTimelineView('sessions')"
+            class="tl-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Sessions</button>
+        </div>
+      </div>
+      <div id="tl-range-bar" class="flex items-center gap-1 mb-2">
+        <span class="label text-xs mr-1">Window</span>
+        <button data-tlhours="6"  onclick="setTimelineHours(6)"  class="tl-hr-btn font-mono text-xs px-2 py-0.5 rounded-sm border border-dune-border text-dune-muted transition-colors">6h</button>
+        <button data-tlhours="24" onclick="setTimelineHours(24)" class="tl-hr-btn font-mono text-xs px-2 py-0.5 rounded-sm border transition-colors" style="border-color:#c8a96e;color:#c8a96e">24h</button>
+        <button data-tlhours="72" onclick="setTimelineHours(72)" class="tl-hr-btn font-mono text-xs px-2 py-0.5 rounded-sm border border-dune-border text-dune-muted transition-colors">3d</button>
+      </div>
+      <div id="tl-legend" class="flex flex-wrap gap-3 mb-2" style="font-size:0.65rem;font-family:'Share Tech Mono'">
+        <span><span style="color:#5a9e6f">▶</span> Login</span>
+        <span><span style="color:#c05050">◼</span> Logout</span>
+        <span><span style="color:#c8a96e">◆</span> Jump</span>
+        <span><span style="color:#4a7fa0">▼</span> Dock</span>
+        <span><span style="color:#d4742a">▲</span> Undock</span>
+        <span><span style="color:#8a6eab">★</span> Ship</span>
+      </div>
+      <canvas id="iskTimelineChart" height="80"></canvas>
     </div>
   </div>
   <div class="card p-4 flex flex-col">
@@ -340,7 +363,9 @@
         <th class="pb-2 pr-4 label">Ended</th>
         <th class="pb-2 pr-4 label">Ship</th>
         <th class="pb-2 pr-4 label">System</th>
-        <th class="pb-2 label text-right">ISK Earned</th>
+        <th class="pb-2 pr-4 label text-right">ISK Earned</th>
+        <th class="pb-2 pr-4 label text-right">Assets Gained</th>
+        <th class="pb-2 label text-right">Assets Lost</th>
       </tr></thead>
       <tbody>
         {% for s in sessions %}
@@ -352,8 +377,14 @@
           </td>
           <td class="py-1.5 pr-4 text-xs font-display">{{ s.ship_name or '—' }}</td>
           <td class="py-1.5 pr-4 text-xs font-mono text-dune-muted">{{ s.system_name or '—' }}</td>
-          <td class="py-1.5 sand font-mono text-xs text-right">
+          <td class="py-1.5 pr-4 sand font-mono text-xs text-right">
             {% if s.isk_earned %}{{ '{:,.0f}'.format(s.isk_earned) }}{% else %}—{% endif %}
+          </td>
+          <td class="py-1.5 pr-4 font-mono text-xs text-right sec-high">
+            {% if s.assets_gained_value %}+{{ '{:,.0f}'.format(s.assets_gained_value) }}{% else %}—{% endif %}
+          </td>
+          <td class="py-1.5 font-mono text-xs text-right spice">
+            {% if s.assets_lost_value %}-{{ '{:,.0f}'.format(s.assets_lost_value) }}{% else %}—{% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -570,19 +601,14 @@ let currentSnaps  = [];
 let walletInst, iskHourInst, activityInst;
 
 function updateIskDrilldown() {
-  if (!iskHourInst) return;
-  const src   = SOURCES.find(s => s.key === activeSource);
-  const field = src ? `isk_hour_${src.key}` : 'isk_hour';
-  iskHourInst.data.datasets[0].data            = currentSnaps.map(s => s[field] ?? 0);
-  iskHourInst.data.datasets[0].backgroundColor = src ? src.color + '80' : 'rgba(200,169,110,0.5)';
-  iskHourInst.data.datasets[0].borderColor     = src ? src.color : SAND;
-  iskHourInst.update();
-  document.getElementById('iskHourLabel').textContent = src ? `ISK / Hour — ${src.label}` : 'ISK / Hour';
+  const src = SOURCES.find(s => s.key === activeSource);
   // Dim unselected doughnut segments
-  activityInst.data.datasets[0].backgroundColor = SOURCES.map(s =>
-    activeSource === null || s.key === activeSource ? s.color : s.color + '30'
-  );
-  activityInst.update();
+  if (activityInst) {
+    activityInst.data.datasets[0].backgroundColor = SOURCES.map(s =>
+      activeSource === null || s.key === activeSource ? s.color : s.color + '30'
+    );
+    activityInst.update();
+  }
   // Update ISK/Hour stat card
   const cardVal = document.getElementById('statIskHourVal');
   const cardSub = document.getElementById('statIskHourSub');
@@ -618,7 +644,6 @@ async function loadCharts() {
              y:{ ticks:{ callback:v=>(v/1e6).toFixed(0)+'M', color:MUTED }, grid:{ color:'rgba(42,45,53,0.8)' } } } };
 
   walletInst?.destroy();
-  iskHourInst?.destroy();
   activityInst?.destroy();
 
   walletInst = new Chart(document.getElementById('walletChart'), { type:'line', data:{ labels,
@@ -628,13 +653,6 @@ async function loadCharts() {
         borderColor: ctx => ctx.p1.parsed.y > ctx.p0.parsed.y ? '#5a9e6f' : '#9e4040',
         backgroundColor: ctx => ctx.p1.parsed.y > ctx.p0.parsed.y ? 'rgba(90,158,111,0.07)' : 'rgba(158,64,64,0.07)',
       }}]}, options:baseOpts });
-
-  const src = SOURCES.find(s => s.key === activeSource);
-  const iskField = src ? `isk_hour_${src.key}` : 'isk_hour';
-  iskHourInst = new Chart(document.getElementById('iskHourChart'), { type:'bar', data:{ labels,
-    datasets:[{ data:snaps.map(s => s[iskField] ?? 0),
-      backgroundColor: src ? src.color + '80' : 'rgba(200,169,110,0.5)',
-      borderColor: src ? src.color : SAND, borderWidth:0 }]}, options:baseOpts });
 
   const totals = SOURCES.map(src => snaps.reduce((a,s) => a+(s[`isk_hour_${src.key}`]??0), 0));
   activityInst = new Chart(document.getElementById('activityChart'), { type:'doughnut',
@@ -652,10 +670,165 @@ async function loadCharts() {
         color:MUTED, font:{ size:10 } } } }, cutout:'68%' } });
 }
 
+// ── ISK Timeline ────────────────────────────────────────────────────────────
+let iskTimelineInst = null;
+let tlView = '20min';
+let tlHours = 24;
+let _tlData = null;
+
+function switchTimelineView(view) {
+  tlView = view;
+  document.querySelectorAll('.tl-btn').forEach(b => {
+    const active = b.id === 'tl-btn-' + view;
+    b.style.borderColor = active ? SAND : '';
+    b.style.color       = active ? SAND : '';
+  });
+  const is20 = view === '20min';
+  document.getElementById('tl-range-bar').style.display = is20 ? 'flex' : 'none';
+  document.getElementById('tl-legend').style.display    = is20 ? 'flex' : 'none';
+  document.getElementById('iskTimelineLabel').textContent =
+    is20 ? 'ISK / Hour — 20 Min Intervals' : 'ISK / Hour — By Session';
+  if (_tlData) renderTimeline(_tlData);
+}
+
+function setTimelineHours(h) {
+  tlHours = h;
+  document.querySelectorAll('.tl-hr-btn').forEach(b => {
+    const active = parseInt(b.dataset.tlhours) === h;
+    b.style.borderColor = active ? SAND : '';
+    b.style.color       = active ? SAND : '';
+  });
+  loadTimeline();
+}
+
+function makeBlipPlugin(events) {
+  const COLORS = { login:'#5a9e6f', logout:'#c05050', jump:'#c8a96e', dock:'#4a7fa0', undock:'#d4742a', ship:'#8a6eab' };
+  const SHAPES = { login:'▶', logout:'◼', jump:'◆', dock:'▼', undock:'▲', ship:'★' };
+  return {
+    id: 'blips',
+    afterDraw(chart) {
+      if (!events || !events.length) return;
+      const ctx  = chart.ctx;
+      const meta = chart.getDatasetMeta(0);
+      if (!meta || !meta.data.length) return;
+      const top = chart.scales.y.top + 5;
+      const byBucket = {};
+      events.forEach(ev => {
+        if (!byBucket[ev.bucket_index]) byBucket[ev.bucket_index] = [];
+        byBucket[ev.bucket_index].push(ev);
+      });
+      ctx.save();
+      ctx.font = 'bold 9px "Share Tech Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      Object.entries(byBucket).forEach(([bi, evs]) => {
+        const bar = meta.data[parseInt(bi)];
+        if (!bar) return;
+        evs.forEach((ev, i) => {
+          ctx.fillStyle = COLORS[ev.type] || SAND;
+          ctx.fillText(SHAPES[ev.type] || '●', bar.x, top + i * 11);
+        });
+      });
+      ctx.restore();
+    }
+  };
+}
+
+function renderTimeline(data) {
+  iskTimelineInst?.destroy();
+  iskTimelineInst = null;
+  const canvas = document.getElementById('iskTimelineChart');
+  const baseOpts = {
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { maxTicksLimit: 12, color: MUTED }, grid: { color: 'rgba(42,45,53,0.8)' } },
+      y: { ticks: { callback: v => fmt(v), color: MUTED }, grid: { color: 'rgba(42,45,53,0.8)' } }
+    }
+  };
+
+  if (tlView === '20min') {
+    const buckets = data.buckets;
+    const values  = buckets.map(b => b.isk_hour);
+    iskTimelineInst = new Chart(canvas, {
+      type: 'bar',
+      plugins: [makeBlipPlugin(data.events)],
+      data: {
+        labels: buckets.map(b => b.label),
+        datasets: [{
+          data: values,
+          backgroundColor: values.map(v => v >= 0 ? 'rgba(200,169,110,0.45)' : 'rgba(212,116,42,0.5)'),
+          borderColor:     values.map(v => v >= 0 ? SAND : SPICE),
+          borderWidth: 0,
+        }]
+      },
+      options: {
+        ...baseOpts,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: ctx => {
+                const bi  = ctx[0].dataIndex;
+                const b   = data.buckets[bi];
+                const evs = data.events.filter(e => e.bucket_index === bi).map(e => e.label);
+                return evs.length ? `${b.label}  ·  ${evs.join('  |  ')}` : b.label;
+              },
+              label: ctx => {
+                const b = data.buckets[ctx.dataIndex];
+                return [`ISK/hr: ${fmt(ctx.raw)}`, `Earned: ${fmt(b.isk_earned)}`];
+              }
+            }
+          }
+        }
+      }
+    });
+  } else {
+    const sessions = data.sessions;
+    if (!sessions.length) {
+      canvas.style.display = 'none'; return;
+    }
+    canvas.style.display = '';
+    iskTimelineInst = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: sessions.map(s => s.label + (s.active ? ' ●' : '')),
+        datasets: [{
+          data: sessions.map(s => s.isk_hour),
+          backgroundColor: sessions.map(s => s.active ? 'rgba(90,158,111,0.65)' : 'rgba(200,169,110,0.45)'),
+          borderColor:     sessions.map(s => s.active ? '#5a9e6f' : SAND),
+          borderWidth:     sessions.map(s => s.active ? 1 : 0),
+        }]
+      },
+      options: {
+        ...baseOpts,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const s = data.sessions[ctx.dataIndex];
+                const lines = [`ISK/hr: ${fmt(s.isk_hour)}`, `Earned: ${fmt(s.isk_earned)}`, `Duration: ${s.duration_h.toFixed(1)}h`];
+                if (s.active) lines.push('● ACTIVE SESSION');
+                return lines;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+}
+
+async function loadTimeline() {
+  const data = await (await fetch(`/api/c/${CID}/isk-timeline?hours=${tlHours}`)).json();
+  _tlData = data;
+  renderTimeline(data);
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 function setRange(r) {
   currentRange = r;
   activeSource = null;
-  document.getElementById('iskHourLabel').textContent = 'ISK / Hour';
   document.querySelectorAll('.chart-range-btn').forEach(b => {
     const active = b.dataset.range === r;
     b.style.borderColor = active ? '#c8a96e' : '';
@@ -1048,6 +1221,7 @@ async function triggerSync(cid) {
 }
 
 setRange('week');
+loadTimeline();
 loadFitting();
 </script>
 {% endblock %}

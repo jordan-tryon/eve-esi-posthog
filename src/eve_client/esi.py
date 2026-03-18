@@ -155,3 +155,28 @@ class ESIClient:
 
     def get_market_history(self, region_id: int, type_id: int) -> list:
         return self._get(f"/markets/{region_id}/history/", params={"type_id": type_id})
+
+    def get_jita_sell_prices(self, type_ids: list[int]) -> dict[int, float]:
+        """Best sell price at Jita 4-4 (station 60003760, region 10000002) per type_id."""
+        if not type_ids:
+            return {}
+        JITA_REGION  = 10000002
+        JITA_STATION = 60003760
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _fetch(type_id: int):
+            try:
+                orders = self._get(f"/markets/{JITA_REGION}/orders/",
+                                   params={"type_id": type_id, "order_type": "sell"})
+                prices = [o["price"] for o in orders if o.get("location_id") == JITA_STATION]
+                return type_id, min(prices) if prices else None
+            except Exception:
+                return type_id, None
+
+        result: dict[int, float] = {}
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            for type_id, price in pool.map(_fetch, type_ids):
+                if price is not None:
+                    result[type_id] = price
+        return result
