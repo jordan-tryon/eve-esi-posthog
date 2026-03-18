@@ -304,7 +304,10 @@
         <span><span style="color:#d4742a">▲</span> Undock</span>
         <span><span style="color:#8a6eab">★</span> Ship</span>
       </div>
-      <div id="iskTimelineChart"></div>
+      <div style="position:relative">
+        <div id="iskTimelineChart"></div>
+        <div id="timelineEvents" style="position:relative;height:26px;overflow:visible"></div>
+      </div>
     </div>
   </div>
   <div class="card p-4 flex flex-col">
@@ -731,50 +734,80 @@ function rollingIskHr(buckets, windowSize) {
   });
 }
 
-/** Build xaxis annotations for event blips (grouped per bucket) */
-function buildEventAnnotations(events, buckets) {
+/**
+ * Render event badges into the #timelineEvents row below the chart.
+ * Uses chart.w.globals for pixel-accurate alignment with bars.
+ * Called from chart.events.mounted / updated.
+ */
+function _renderEventRow(ctx, events, buckets) {
+  const row = document.getElementById('timelineEvents');
+  if (!row) return;
+  row.innerHTML = '';
+  if (!events?.length || !buckets.length) return;
+
+  const g = ctx.w.globals;
+  const barWidth = g.gridWidth / buckets.length;
+
+  // Group events by bucket_index
   const grouped = {};
   (events || []).forEach(ev => {
     if (!grouped[ev.bucket_index]) grouped[ev.bucket_index] = [];
     grouped[ev.bucket_index].push(ev);
   });
-  return Object.entries(grouped).map(([bi, evs]) => {
-    const bucket = buckets[parseInt(bi)];
-    if (!bucket) return null;
-    return {
-      x: bucket.label,
-      borderColor: (_EV_COLORS[evs[0].type] || SAND) + '70',
-      borderWidth: 1,
-      label: {
-        text: evs.map(e => _EV_SHAPES[e.type] || '●').join(''),
-        position: 'top',
-        offsetY: 0,
-        style: {
-          color: _EV_COLORS[evs[0].type] || SAND,
-          background: '#16181c',
-          border: 0,
-          fontSize: '9px',
-          fontFamily: 'Share Tech Mono, monospace',
-          padding: { top: 1, right: 3, bottom: 1, left: 3 },
-        },
-      },
-    };
-  }).filter(Boolean);
+
+  Object.entries(grouped).forEach(([bi, evs]) => {
+    const centerX = g.translateX + (parseInt(bi) + 0.5) * barWidth;
+    evs.forEach((ev, i) => {
+      // Spread multiple events at the same bucket horizontally
+      const spread = evs.length > 1 ? (i - (evs.length - 1) / 2) * 15 : 0;
+      const color = _EV_COLORS[ev.type] || SAND;
+      const shape = _EV_SHAPES[ev.type] || '●';
+      const badge = document.createElement('span');
+      badge.style.cssText = [
+        `position:absolute`,
+        `left:${centerX + spread}px`,
+        `transform:translateX(-50%)`,
+        `top:3px`,
+        `color:${color}`,
+        `font-size:10px`,
+        `font-family:Share Tech Mono,monospace`,
+        `background:#1c1f24`,
+        `border:1px solid ${color}70`,
+        `border-radius:3px`,
+        `padding:1px 4px`,
+        `cursor:default`,
+        `white-space:nowrap`,
+        `line-height:1.4`,
+        `z-index:10`,
+      ].join(';');
+      badge.textContent = shape;
+      badge.title = ev.label || ev.type;  // native hover tooltip
+      row.appendChild(badge);
+    });
+  });
 }
 
 function renderTimeline(data) {
   iskTimelineInst?.destroy();
   iskTimelineInst = null;
+  // Clear event row whenever chart is rebuilt
+  const evRow = document.getElementById('timelineEvents');
+  if (evRow) evRow.innerHTML = '';
   const el = document.getElementById('iskTimelineChart');
 
   if (tlView === '20min') {
     const buckets = data.buckets || [];
     const earned  = buckets.map(b => b.isk_earned || 0);
     const avgLine = rollingIskHr(buckets, 3); // 3 × 20 min = 60-min rolling window
-    const annots  = buildEventAnnotations(data.events, buckets);
 
     iskTimelineInst = new ApexCharts(el, {
-      chart: { ..._apexBase, type: 'bar', height: 200 },
+      chart: {
+        ..._apexBase, type: 'bar', height: 200,
+        events: {
+          mounted: (ctx) => _renderEventRow(ctx, data.events, buckets),
+          updated: (ctx) => _renderEventRow(ctx, data.events, buckets),
+        },
+      },
       series: [
         { name: 'ISK Earned',              type: 'column', data: earned },
         { name: 'ISK/hr (60 minute avg)', type: 'line',   data: avgLine },
@@ -794,7 +827,6 @@ function renderTimeline(data) {
       fill:   { opacity: [0.85, 1] },
       plotOptions: { bar: { columnWidth: '60%', borderRadius: 2 } },
       grid: { borderColor: BORDER, strokeDashArray: 3 },
-      annotations: { xaxis: annots },
       legend: {
         show: true, position: 'top', labels: { colors: [MUTED, SAND] },
         markers: { width: 10, height: 10, radius: 2 }, fontSize: '10px',
