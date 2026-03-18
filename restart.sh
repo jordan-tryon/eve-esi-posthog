@@ -21,8 +21,9 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 echo "[restart] Starting app..."
-uv run python app.py &
+python app.py &
 APP_PID=$!
+echo "$APP_PID" > "$PID_FILE"
 
 # Wait for it to bind
 for i in $(seq 1 20); do

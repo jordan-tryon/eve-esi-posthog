@@ -21,7 +21,7 @@ from src.eve_client.asset_tracker import run_asset_tracking
 from src.eve_client.auth import EveAuth
 from src.eve_client.esi import ESIClient
 from src.eve_client.hourly_pipeline import run_hourly_snapshot
-from src.eve_client.metrics import compute_trade_pnl, compute_cancelled_order_losses
+from src.eve_client.metrics import compute_trade_pnl, compute_cancelled_order_losses, ESCROW_RETURN_TYPES
 from src.eve_client.store import SnapshotStore
 from src.eve_client.trading_pipeline import run_trading_sync
 
@@ -146,6 +146,15 @@ def _fmt_isk(val) -> str:
 
 
 templates.env.filters["fmt_isk"] = _fmt_isk
+
+
+def _safe_esi(fn, default=None):
+    """Run an ESI call, returning default on any exception."""
+    try:
+        return fn()
+    except Exception as e:
+        print(f"  [esi] {e}")
+        return default
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -378,7 +387,9 @@ def _build_session_isk(sessions: list, journal: list) -> list:
         end   = s["ended_at"].replace("Z", "+00:00") if s.get("ended_at") else now.isoformat()
         earned = sum(
             e["amount"] for e in journal
-            if e["amount"] > 0 and start <= e["date"].replace("Z", "+00:00") < end
+            if e["amount"] > 0
+            and e.get("ref_type") not in ESCROW_RETURN_TYPES
+            and start <= e["date"].replace("Z", "+00:00") < end
         )
         try:
             hours = max((datetime.fromisoformat(end) - datetime.fromisoformat(start))
@@ -389,14 +400,23 @@ def _build_session_isk(sessions: list, journal: list) -> list:
             label = datetime.fromisoformat(s["started_at"].replace("Z", "+00:00")).strftime("%b %d %H:%M")
         except Exception:
             label = s["started_at"][:16]
+        assets_gained = s.get("assets_gained_value") or 0.0
+        assets_lost   = s.get("assets_lost_value") or 0.0
+        net_assets    = assets_gained - assets_lost
+        total_value   = round(earned + net_assets, 2)
         result.append({
-            "label":       label,
-            "started_at":  s["started_at"],
-            "ended_at":    s.get("ended_at"),
-            "isk_earned":  round(earned, 2),
-            "isk_hour":    round(earned / hours, 2),
-            "duration_h":  round(hours, 2),
-            "active":      not bool(s.get("ended_at")),
+            "label":          label,
+            "started_at":     s["started_at"],
+            "ended_at":       s.get("ended_at"),
+            "session_type":   s.get("session_type"),
+            "isk_earned":     round(earned, 2),
+            "assets_gained":  round(assets_gained, 2),
+            "assets_lost":    round(assets_lost, 2),
+            "net_assets":     round(net_assets, 2),
+            "total_value":    total_value,
+            "isk_hour":       round(total_value / hours, 2),
+            "duration_h":     round(hours, 2),
+            "active":         not bool(s.get("ended_at")),
         })
     return result
 
@@ -832,6 +852,107 @@ def api_sync_trading(character_id: int, background_tasks: BackgroundTasks):
 @app.get("/api/c/{character_id}/trading-status")
 def api_trading_status(character_id: int):
     return _trading_sync_jobs.get(character_id, {"running": False, "last": None, "error": None})
+
+
+@app.get("/api/c/{character_id}/escrow")
+def api_escrow(character_id: int):
+    """Return ISK currently locked in escrow, bucketed by type."""
+    token = auth.get_valid_token(character_id)
+    esi   = ESIClient(access_token=token)
+    try:
+        orders    = _safe_esi(lambda: esi.get_character_orders(character_id))
+        contracts = _safe_esi(lambda: esi.get_contracts(character_id))
+    finally:
+        esi.close()
+
+    orders    = orders    or []
+    contracts = contracts or []
+
+    # Market buy orders — escrow field is ISK locked per order
+    buy_escrow_orders = [
+        {
+            "type_id":   o.get("type_id"),
+            "type_name": o.get("type_name", f"Type {o.get('type_id')}"),
+            "price":     o.get("price", 0.0),
+            "volume":    o.get("volume_remain", 0),
+            "escrow":    round(o.get("escrow", 0.0), 2),
+            "location_id": o.get("location_id"),
+        }
+        for o in orders if o.get("is_buy_order") and o.get("state") == "active"
+    ]
+    buy_escrow_total = round(sum(o["escrow"] for o in buy_escrow_orders), 2)
+
+    active_statuses = {"outstanding", "in_progress"}
+    active_contracts = [c for c in contracts if c.get("status") in active_statuses]
+
+    # Courier collateral YOU posted (you accepted a courier contract and put up collateral)
+    collateral_locked = [
+        {
+            "contract_id": c.get("contract_id"),
+            "collateral":  round(c.get("collateral", 0.0), 2),
+            "reward":      round(c.get("reward", 0.0), 2),
+            "status":      c.get("status"),
+            "date_expired": c.get("date_expired"),
+        }
+        for c in active_contracts
+        if c.get("type") == "courier"
+        and c.get("acceptor_id") == character_id
+        and c.get("status") == "in_progress"
+    ]
+    collateral_total = round(sum(c["collateral"] for c in collateral_locked), 2)
+
+    # Courier rewards YOU posted (you issued a courier contract, reward in escrow)
+    rewards_posted = [
+        {
+            "contract_id": c.get("contract_id"),
+            "reward":      round(c.get("reward", 0.0), 2),
+            "collateral":  round(c.get("collateral", 0.0), 2),
+            "status":      c.get("status"),
+            "date_expired": c.get("date_expired"),
+        }
+        for c in active_contracts
+        if c.get("type") == "courier"
+        and c.get("issuer_id") == character_id
+    ]
+    rewards_posted_total = round(sum(r["reward"] for r in rewards_posted), 2)
+
+    # Auction bids you placed (ISK locked until outbid or won)
+    auction_bids = [
+        {
+            "contract_id": c.get("contract_id"),
+            "buyout":      round(c.get("buyout", 0.0), 2),
+            "status":      c.get("status"),
+            "date_expired": c.get("date_expired"),
+        }
+        for c in active_contracts
+        if c.get("type") == "auction"
+        and c.get("acceptor_id") == character_id
+    ]
+    auction_bids_total = round(sum(b["buyout"] for b in auction_bids), 2)
+
+    total_in_escrow = round(
+        buy_escrow_total + collateral_total + rewards_posted_total + auction_bids_total, 2
+    )
+
+    return {
+        "total_in_escrow":     total_in_escrow,
+        "buy_orders": {
+            "total":   buy_escrow_total,
+            "entries": sorted(buy_escrow_orders, key=lambda x: x["escrow"], reverse=True),
+        },
+        "collateral_locked": {
+            "total":   collateral_total,
+            "entries": collateral_locked,
+        },
+        "rewards_posted": {
+            "total":   rewards_posted_total,
+            "entries": rewards_posted,
+        },
+        "auction_bids": {
+            "total":   auction_bids_total,
+            "entries": auction_bids,
+        },
+    }
 
 
 @app.post("/api/c/{character_id}/track-item")

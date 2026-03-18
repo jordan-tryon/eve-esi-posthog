@@ -185,9 +185,9 @@ async function loadCharts() {
   const labels     = snaps.map(s => s.captured_at.slice(0, 16).replace('T', ' '));
   const wallet     = snaps.map(s => s.wallet_balance);
   const iskHour    = snaps.map(s => s.isk_hour ?? 0);
-  const bounty     = snaps.reduce((a, s) => a + (s.isk_hour_bounty ?? 0), 0);
-  const trade      = snaps.reduce((a, s) => a + (s.isk_hour_trade ?? 0), 0);
-  const industry   = snaps.reduce((a, s) => a + (s.isk_hour_industry ?? 0), 0);
+  // isk_hour_bounty = Combat faucets, isk_hour_trade = Missions/Events (column repurposed)
+  const combat     = snaps.reduce((a, s) => a + (s.isk_hour_bounty ?? 0), 0);
+  const missions   = snaps.reduce((a, s) => a + (s.isk_hour_trade ?? 0), 0);
   const other      = snaps.reduce((a, s) => a + (s.isk_hour_other ?? 0), 0);
 
   // Wallet balance line chart
@@ -237,14 +237,14 @@ async function loadCharts() {
     }
   });
 
-  // Activity donut
+  // ISK Sources donut — true faucets only (trading/industry excluded: they move ISK, not create it)
   new Chart(document.getElementById('activityChart'), {
     type: 'doughnut',
     data: {
-      labels: ['Combat PvE', 'Trading', 'Industry', 'Other'],
+      labels: ['Combat', 'Missions & Events', 'Other'],
       datasets: [{
-        data: [bounty, trade, industry, other],
-        backgroundColor: [RED, GREEN, BLUE, PURPLE],
+        data: [combat, missions, other],
+        backgroundColor: [RED, GOLD, PURPLE],
         borderColor: '#111d35',
         borderWidth: 2,
       }]

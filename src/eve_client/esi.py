@@ -153,6 +153,20 @@ class ESIClient:
     def get_character_orders_history(self, character_id: int) -> list:
         return self._get(f"/characters/{character_id}/orders/history/")
 
+    def get_contracts(self, character_id: int) -> list:
+        """Fetch all character contracts, paginated."""
+        url = f"{ESI_BASE}/characters/{character_id}/contracts/"
+        all_contracts = []
+        page = 1
+        while True:
+            resp = self._client.get(url, params={"page": page})
+            resp.raise_for_status()
+            all_contracts.extend(resp.json())
+            if page >= int(resp.headers.get("X-Pages", 1)):
+                break
+            page += 1
+        return all_contracts
+
     def get_market_history(self, region_id: int, type_id: int) -> list:
         return self._get(f"/markets/{region_id}/history/", params={"type_id": type_id})
 

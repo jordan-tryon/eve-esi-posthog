@@ -301,6 +301,32 @@
 
 </div>
 
+<!-- Escrow breakdown panel -->
+<div class="card p-4 mb-6" id="escrowPanel">
+  <div class="flex items-center justify-between mb-3">
+    <p class="label">ISK in Escrow</p>
+    <span id="escrowTotal" class="font-mono text-sm sand">loading…</span>
+  </div>
+  <div id="escrowBody" class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+    <div>
+      <p class="label text-xs mb-1">Buy Orders</p>
+      <p id="escrowBuyOrders" class="font-mono text-dune-muted">—</p>
+    </div>
+    <div>
+      <p class="label text-xs mb-1">Collateral at Risk</p>
+      <p id="escrowCollateral" class="font-mono text-dune-muted">—</p>
+    </div>
+    <div>
+      <p class="label text-xs mb-1">Posted Rewards</p>
+      <p id="escrowRewards" class="font-mono text-dune-muted">—</p>
+    </div>
+    <div>
+      <p class="label text-xs mb-1">Auction Bids</p>
+      <p id="escrowAuction" class="font-mono text-dune-muted">—</p>
+    </div>
+  </div>
+</div>
+
 <!-- ── Charts — wallet + ISK/hr stacked left, activity doughnut right ── -->
 <div class="card p-3 mb-3 flex items-center gap-2 flex-wrap">
   <span class="label mr-1">Range</span>
@@ -370,17 +396,27 @@
     {% if sessions %}
     <table class="w-full text-sm font-display">
       <thead><tr class="border-b border-dune-border text-left">
+        <th class="pb-2 pr-4 label">Type</th>
         <th class="pb-2 pr-4 label">Started</th>
         <th class="pb-2 pr-4 label">Ended</th>
         <th class="pb-2 pr-4 label">Ship</th>
         <th class="pb-2 pr-4 label">System</th>
         <th class="pb-2 pr-4 label text-right">ISK Earned</th>
-        <th class="pb-2 pr-4 label text-right">Assets Gained</th>
-        <th class="pb-2 label text-right">Assets Lost</th>
+        <th class="pb-2 pr-4 label text-right">Loot / Ore</th>
+        <th class="pb-2 pr-4 label text-right">Deposited / Sold</th>
+        <th class="pb-2 label text-right">Total</th>
       </tr></thead>
       <tbody>
         {% for s in sessions %}
+        {% set net_assets = (s.assets_gained_value or 0) - (s.assets_lost_value or 0) %}
+        {% set total_value = (s.isk_earned or 0) + net_assets %}
         <tr class="row border-b border-dune-border border-opacity-30">
+          <td class="py-1.5 pr-4 text-xs font-display">
+            {% if s.session_type == 'Mining' %}<span class="text-blue-400">Mining</span>
+            {% elif s.session_type == 'Exploration' %}<span class="text-purple-400">Exploration</span>
+            {% elif s.session_type == 'Combat' %}<span class="spice">Combat</span>
+            {% else %}<span class="text-dune-muted">—</span>{% endif %}
+          </td>
           <td class="py-1.5 pr-4 text-dune-muted font-mono text-xs">{{ s.started_at[:16].replace('T',' ') }}</td>
           <td class="py-1.5 pr-4 font-mono text-xs">
             {% if s.ended_at %}{{ s.ended_at[:16].replace('T',' ') }}
@@ -394,8 +430,13 @@
           <td class="py-1.5 pr-4 font-mono text-xs text-right sec-high">
             {% if s.assets_gained_value %}+{{ '{:,.0f}'.format(s.assets_gained_value) }}{% else %}—{% endif %}
           </td>
-          <td class="py-1.5 font-mono text-xs text-right spice">
+          <td class="py-1.5 pr-4 font-mono text-xs text-right spice">
             {% if s.assets_lost_value %}-{{ '{:,.0f}'.format(s.assets_lost_value) }}{% else %}—{% endif %}
+          </td>
+          <td class="py-1.5 font-mono text-xs text-right">
+            {% if total_value > 0 %}<span class="sand font-600">{{ '{:,.0f}'.format(total_value) }}</span>
+            {% elif total_value < 0 %}<span class="text-red-400">{{ '{:,.0f}'.format(total_value) }}</span>
+            {% else %}<span class="text-dune-muted">—</span>{% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -1241,5 +1282,41 @@ async function triggerSync(cid) {
 setRange('week');
 loadTimeline();
 loadFitting();
+
+async function loadEscrow() {
+  try {
+    const res = await fetch(`/api/c/{{ cid }}/escrow`);
+    const d = await res.json();
+
+    const fmt = v => v >= 1e9 ? (v/1e9).toFixed(2)+'B'
+                   : v >= 1e6 ? (v/1e6).toFixed(1)+'M'
+                   : v >= 1e3 ? (v/1e3).toFixed(0)+'K'
+                   : v.toFixed(0);
+
+    document.getElementById('escrowTotal').textContent =
+      d.total_in_escrow > 0 ? fmt(d.total_in_escrow) + ' ISK' : '—';
+    document.getElementById('escrowBuyOrders').textContent =
+      d.buy_orders.total > 0 ? fmt(d.buy_orders.total) : '—';
+    document.getElementById('escrowCollateral').textContent =
+      d.collateral_locked.total > 0
+        ? fmt(d.collateral_locked.total) + (d.collateral_locked.entries.length > 0 ? ` (${d.collateral_locked.entries.length})` : '')
+        : '—';
+    document.getElementById('escrowRewards').textContent =
+      d.rewards_posted.total > 0
+        ? fmt(d.rewards_posted.total) + (d.rewards_posted.entries.length > 0 ? ` (${d.rewards_posted.entries.length})` : '')
+        : '—';
+    document.getElementById('escrowAuction').textContent =
+      d.auction_bids.total > 0 ? fmt(d.auction_bids.total) : '—';
+
+    // Hide panel entirely if nothing in escrow
+    if (d.total_in_escrow === 0) {
+      document.getElementById('escrowPanel').style.display = 'none';
+    }
+  } catch (e) {
+    document.getElementById('escrowTotal').textContent = 'unavailable';
+  }
+}
+
+loadEscrow();
 </script>
 {% endblock %}

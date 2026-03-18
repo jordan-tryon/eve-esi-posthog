@@ -198,7 +198,11 @@ class SnapshotStore:
             self.conn.execute("ALTER TABLE tracked_items ADD COLUMN type_name TEXT")
 
         session_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(sessions)").fetchall()}
-        for col, typedef in [("assets_gained_value", "REAL"), ("assets_lost_value", "REAL")]:
+        for col, typedef in [
+            ("assets_gained_value", "REAL"),
+            ("assets_lost_value", "REAL"),
+            ("session_type", "TEXT"),
+        ]:
             if col not in session_cols:
                 self.conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {typedef}")
 
@@ -428,7 +432,8 @@ class SnapshotStore:
 
     def save_session_start(self, character_id: int, started_at: str, ship_type_id: int | None,
                            ship_name: str | None, solar_system_id: int | None,
-                           system_name: str | None, security_status: float | None) -> int:
+                           system_name: str | None, security_status: float | None,
+                           session_type: str | None = None) -> int:
         existing = self.conn.execute(
             "SELECT id FROM sessions WHERE character_id=? AND started_at=?",
             (character_id, started_at),
@@ -437,10 +442,10 @@ class SnapshotStore:
             return existing[0]
         cur = self.conn.execute(
             """INSERT INTO sessions (character_id, started_at, ship_type_id, ship_name,
-               solar_system_id, system_name, security_status)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               solar_system_id, system_name, security_status, session_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (character_id, started_at, ship_type_id, ship_name,
-             solar_system_id, system_name, security_status),
+             solar_system_id, system_name, security_status, session_type),
         )
         self.conn.commit()
         return cur.lastrowid

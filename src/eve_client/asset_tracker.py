@@ -6,9 +6,10 @@ from .auth import EveAuth
 from .esi import ESIClient
 from .store import SnapshotStore
 
-# Inventory location flags (tradeable items, not fitted modules or assembled ships)
+# On-ship holds only — "Hangar" intentionally excluded (station-side, would contaminate session P&L
+# with pre-session stockpiles)
 INVENTORY_FLAGS = {
-    "Cargo", "DroneBay", "Hangar", "FleetHangar", "Unlocked",
+    "Cargo", "DroneBay", "FleetHangar", "Unlocked",
     "SpecializedOreHold", "SpecializedDenseVelocityHold", "SpecializedGasHold",
     "SpecializedMineralHold", "SpecializedSalvageHold", "SpecializedShipHold",
     "SpecializedSmallShipHold", "SpecializedMediumShipHold",

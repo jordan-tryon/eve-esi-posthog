@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from .analytics import Analytics
 from .auth import EveAuth
 from .esi import ESIClient
-from .metrics import compute_isk_rates, compute_risk_level, detect_activity_type
+from .metrics import compute_isk_rates, compute_risk_level, detect_activity_type, detect_session_type, ESCROW_RETURN_TYPES
 from .store import SnapshotStore
 
 
@@ -76,10 +76,12 @@ def run_hourly_snapshot(
         # New login detected
         if last_login and last_login != prev_last_login:
             print(f"  [session] Login detected at {last_login}")
+            session_type = detect_session_type(ship_group_id)
             store.save_session_start(
                 character_id, last_login,
                 ship_type_id, ship.get("ship_name"),
                 system_id, system_name, security_status,
+                session_type=session_type,
             )
             analytics.capture_session_start(character_id, {
                 "started_at":      last_login,
@@ -88,6 +90,7 @@ def run_hourly_snapshot(
                 "solar_system_id": system_id,
                 "system_name":     system_name,
                 "security_status": security_status,
+                "session_type":    session_type,
             })
 
         # New logout detected
@@ -101,7 +104,10 @@ def run_hourly_snapshot(
                 session_journal = store.get_journal_entries_between(
                     character_id, open_session["started_at"], last_logout
                 )
-                session_isk = sum(e["amount"] for e in session_journal if e["amount"] > 0)
+                session_isk = sum(
+                    e["amount"] for e in session_journal
+                    if e["amount"] > 0 and e.get("ref_type") not in ESCROW_RETURN_TYPES
+                )
                 try:
                     t0 = datetime.fromisoformat(open_session["started_at"].replace("Z", "+00:00"))
                     t1 = datetime.fromisoformat(last_logout.replace("Z", "+00:00"))

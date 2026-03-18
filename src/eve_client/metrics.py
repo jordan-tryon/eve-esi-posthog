@@ -2,13 +2,37 @@
 
 from datetime import datetime, timezone
 
-BOUNTY_TYPES = {"bounty_prizes", "ess_escrow_transfer", "bounty_prize", "agent_mission_reward_bonus", "daily_goal_payouts"}
-MISSION_TYPES = {"agent_mission_reward", "agent_mission_time_bonus_reward"}
+# True ISK faucets — NPC-sourced, new ISK entering the economy
+BOUNTY_TYPES = {"bounty_prizes", "ess_escrow_transfer", "bounty_prize"}
+MISSION_TYPES = {
+    "agent_mission_reward", "agent_mission_time_bonus_reward",
+    "agent_mission_reward_bonus", "daily_goal_payouts",
+}
+# ISK exchanges — move existing ISK between players, do NOT create it
 TRADE_TYPES = {
     "market_transaction", "transaction_tax", "brokers_fee", "market_escrow",
-    "contract_price", "contract_reward", "contract_price_payment_corp",
 }
 INDUSTRY_TYPES = {"industry_job_tax", "reprocessing_tax", "industry_job_completed"}
+
+# Escrow returns — positive journal entries that are just YOUR OWN ISK coming back from escrow.
+# Must be excluded from session income calculations or they'll inflate earnings.
+ESCROW_RETURN_TYPES = {
+    "contract_collateral_refund",    # you delivered successfully, collateral returned
+    "contract_reward_refund",         # courier failed, poster's reward returned to them
+    "contract_auction_bid_refund",    # your auction bid was outbid
+    "contract_deposit_refund",        # contract completed/cancelled, creation deposit returned
+}
+
+# Contract income — ISK you actually earned from contract activity (player-to-player, not faucets)
+CONTRACT_INCOME_TYPES = {
+    "contract_reward",               # you completed a courier/hauling job
+    "contract_price",                # item exchange — you sold items
+    "contract_price_payment_corp",   # corp version
+    "contract_auction_sold",         # your auction contract won
+    "contract_collateral_payout",    # courier failed — you received their collateral
+}
+
+_NON_FAUCET_TYPES = TRADE_TYPES | INDUSTRY_TYPES | ESCROW_RETURN_TYPES | CONTRACT_INCOME_TYPES
 
 # EVE ship group IDs for capitals
 CAPITAL_GROUP_IDS = {
@@ -28,33 +52,38 @@ def _parse(ts: str) -> datetime:
 def compute_isk_rates(
     journal_entries: list[dict], since: str, until: str
 ) -> dict:
-    """Returns ISK/hr broken down by source category."""
+    """Returns ISK/hr broken down by true faucet source category.
+
+    Trading and industry are ISK exchanges, not ISK creation — they are
+    excluded from this breakdown. The isk_hour_trade column is repurposed
+    to hold mission/event income.
+    """
     prev_dt = _parse(since)
     now_dt = _parse(until)
     elapsed_hours = max((now_dt - prev_dt).total_seconds() / 3600, 0.1)
 
-    totals = {"bounty": 0.0, "trade": 0.0, "industry": 0.0, "other": 0.0}
+    totals = {"combat": 0.0, "missions": 0.0, "other": 0.0}
 
     for e in journal_entries:
         amount = e.get("amount", 0.0)
         if amount <= 0:
             continue
         ref = e.get("ref_type", "")
-        if ref in BOUNTY_TYPES or ref in MISSION_TYPES:
-            totals["bounty"] += amount
-        elif ref in TRADE_TYPES:
-            totals["trade"] += amount
-        elif ref in INDUSTRY_TYPES:
-            totals["industry"] += amount
+        if ref in _NON_FAUCET_TYPES:
+            continue  # ISK exchange, not creation
+        if ref in BOUNTY_TYPES:
+            totals["combat"] += amount
+        elif ref in MISSION_TYPES:
+            totals["missions"] += amount
         else:
             totals["other"] += amount
 
     total = sum(totals.values())
     return {
         "isk_hour": round(total / elapsed_hours, 2),
-        "isk_hour_bounty": round(totals["bounty"] / elapsed_hours, 2),
-        "isk_hour_trade": round(totals["trade"] / elapsed_hours, 2),
-        "isk_hour_industry": round(totals["industry"] / elapsed_hours, 2),
+        "isk_hour_bounty": round(totals["combat"] / elapsed_hours, 2),    # Combat
+        "isk_hour_trade": round(totals["missions"] / elapsed_hours, 2),   # Missions (column repurposed)
+        "isk_hour_industry": 0.0,                                          # Unused — industry is not a faucet
         "isk_hour_other": round(totals["other"] / elapsed_hours, 2),
     }
 
@@ -91,22 +120,21 @@ def compute_risk_level(
 
 
 def detect_activity_type(journal_entries: list[dict], since: str) -> str:
-    since_dt = _parse(since)
-    totals = {"Combat PvE": 0.0, "Missions": 0.0, "Trading": 0.0, "Industry": 0.0, "Other": 0.0}
+    """Detect primary activity from true ISK faucet entries only.
+    Trading and industry are excluded — they don't reveal ISK-generating activity."""
+    totals = {"Combat PvE": 0.0, "Missions": 0.0, "Other": 0.0}
 
     for e in journal_entries:
         amount = e.get("amount", 0.0)
         if amount <= 0:
             continue
         ref = e.get("ref_type", "")
+        if ref in _NON_FAUCET_TYPES:
+            continue
         if ref in BOUNTY_TYPES:
             totals["Combat PvE"] += amount
         elif ref in MISSION_TYPES:
             totals["Missions"] += amount
-        elif ref in TRADE_TYPES:
-            totals["Trading"] += amount
-        elif ref in INDUSTRY_TYPES:
-            totals["Industry"] += amount
         else:
             totals["Other"] += amount
 
@@ -229,3 +257,17 @@ def compute_cancelled_order_losses(orders: list[dict]) -> list[dict]:
         })
     result.sort(key=lambda r: r["capital_at_risk"], reverse=True)
     return result
+
+
+# Ship group IDs by activity type
+_MINING_SHIP_GROUPS    = {463, 543, 1022, 883}   # Barge, Exhumer, Mining Frigate, Orca/Rorqual
+_EXPLORATION_SHIP_GROUPS = {830, 1534, 831}        # Covert Ops, Expedition Frigate, EAF
+
+
+def detect_session_type(ship_group_id: int | None) -> str:
+    """Classify a session by the ship flown at session start."""
+    if ship_group_id in _MINING_SHIP_GROUPS:
+        return "Mining"
+    if ship_group_id in _EXPLORATION_SHIP_GROUPS:
+        return "Exploration"
+    return "Combat"
