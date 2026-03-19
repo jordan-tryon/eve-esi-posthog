@@ -20,16 +20,45 @@ INVENTORY_FLAGS = {
 }
 
 
-def _aggregate_inventory(assets: list) -> dict[int, int]:
-    """Aggregate non-singleton inventory items by type_id."""
+def _aggregate_inventory(assets: list, ship_item_id: int | None = None) -> dict[int, int]:
+    """Aggregate on-ship inventory items by type_id.
+
+    Filters by both location_flag (INVENTORY_FLAGS) AND location_id so that items
+    inside station containers — which ESI also reports with location_flag="Cargo" —
+    are excluded.  Only items whose parent chain leads back to ship_item_id count.
+    """
     totals: dict[int, int] = {}
-    for a in assets:
-        if a.get("is_singleton"):
-            continue  # skip assembled ships/containers
-        if a.get("location_flag", "") not in INVENTORY_FLAGS:
-            continue
-        type_id = a["type_id"]
-        totals[type_id] = totals.get(type_id, 0) + a.get("quantity", 1)
+
+    if ship_item_id is not None:
+        # Build set of valid parent location IDs:
+        #   1. The ship itself
+        #   2. Any non-singleton container that lives directly in the ship's hold
+        on_ship_locs: set[int] = {ship_item_id}
+        for a in assets:
+            if a.get("location_id") == ship_item_id and a.get("location_flag", "") in INVENTORY_FLAGS:
+                item_id = a.get("item_id")
+                if item_id:
+                    on_ship_locs.add(item_id)
+
+        for a in assets:
+            if a.get("is_singleton"):
+                continue
+            if a.get("location_flag", "") not in INVENTORY_FLAGS:
+                continue
+            if a.get("location_id") not in on_ship_locs:
+                continue
+            type_id = a["type_id"]
+            totals[type_id] = totals.get(type_id, 0) + a.get("quantity", 1)
+    else:
+        # Fallback (no ship context): flag-only filter
+        for a in assets:
+            if a.get("is_singleton"):
+                continue
+            if a.get("location_flag", "") not in INVENTORY_FLAGS:
+                continue
+            type_id = a["type_id"]
+            totals[type_id] = totals.get(type_id, 0) + a.get("quantity", 1)
+
     return totals
 
 
@@ -50,21 +79,40 @@ def run_asset_tracking(character_id: int, auth: EveAuth, store: SnapshotStore):
             print(f"[asset_tracker] Failed to fetch assets for {character_id}: {e}")
             return
 
-        current = _aggregate_inventory(all_assets)
+        ship_item_id: int | None = None
+        try:
+            ship_item_id = esi.get_ship(character_id).get("ship_item_id")
+        except Exception:
+            pass
+
+        current = _aggregate_inventory(all_assets, ship_item_id)
         prev = store.get_last_asset_snapshot(character_id)
 
-        # Resolve type names for new type_ids
+        # Resolve type names: carry forward known names from DB, resolve new ones via ESI
         prev_types = set(prev.keys()) if prev else set()
         new_types = set(current.keys()) - prev_types
-        names: dict[int, str] = {}
+
+        # Pull already-resolved names from previous snapshots
+        known_names: dict[int, str] = {}
+        if current:
+            placeholders = ",".join("?" * len(current))
+            for row in store.conn.execute(
+                f"SELECT DISTINCT type_id, type_name FROM asset_items "
+                f"WHERE character_id=? AND type_id IN ({placeholders}) AND type_name IS NOT NULL",
+                [character_id] + list(current.keys()),
+            ).fetchall():
+                known_names[row[0]] = row[1]
+
+        new_names: dict[int, str] = {}
         if new_types:
             try:
                 resolved = esi.get_universe_names(list(new_types))
-                names = {e["id"]: e["name"] for e in resolved
-                         if e.get("category") == "inventory_type"}
+                new_names = {e["id"]: e["name"] for e in resolved
+                             if e.get("category") == "inventory_type"}
             except Exception:
                 pass
 
+        names = {**known_names, **new_names}
         store.save_asset_snapshot(character_id, now, current, names)
 
         if prev is None:
