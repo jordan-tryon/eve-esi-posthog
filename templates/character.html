@@ -344,8 +344,8 @@
         <th class="pb-2 pr-4 label">Ship</th>
         <th class="pb-2 pr-4 label">System</th>
         <th class="pb-2 pr-4 label text-right">ISK Earned</th>
-        <th class="pb-2 pr-4 label text-right">Loot / Ore</th>
-        <th class="pb-2 pr-4 label text-right">Deposited / Sold</th>
+        <th class="pb-2 pr-4 label text-right">Assets Gained</th>
+        <th class="pb-2 pr-4 label text-right">Assets Lost</th>
         <th class="pb-2 label text-right">Total</th>
       </tr></thead>
       <tbody>
@@ -393,14 +393,21 @@
     <table class="w-full text-sm font-display">
       <thead><tr class="border-b border-dune-border text-left">
         <th class="pb-2 pr-4 label">Time</th>
-        <th class="pb-2 pr-4 label">Ship Type ID</th>
+        <th class="pb-2 pr-4 label">Ship</th>
         <th class="pb-2 label">System</th>
       </tr></thead>
       <tbody>
         {% for loss in losses %}
         <tr class="row border-b border-dune-border border-opacity-30">
           <td class="py-1.5 pr-4 text-dune-muted font-mono text-xs">{{ loss.kill_time[:16].replace('T',' ') }}</td>
-          <td class="py-1.5 pr-4 spice font-mono text-xs">{{ loss.ship_type_id or '—' }}</td>
+          <td class="py-1.5 pr-4 spice font-mono text-xs">
+            {% if loss.ship_type_id %}
+            <a href="https://zkillboard.com/kill/{{ loss.killmail_id }}/" target="_blank"
+               class="hover:underline" title="View on zKillboard">
+              type:{{ loss.ship_type_id }}
+            </a>
+            {% else %}—{% endif %}
+          </td>
           <td class="py-1.5 text-dune-muted font-mono text-xs">{{ loss.solar_system_id or '—' }}</td>
         </tr>
         {% endfor %}
@@ -738,12 +745,13 @@ function setTimelineHours(h) {
   loadTimeline();
 }
 
-/** Rolling ISK/hr over a windowSize × 20-min sliding window */
-function rollingIskHr(buckets, windowSize) {
+/** Rolling ISK/hr over a ~60-min sliding window, adapting to actual bucket duration */
+function rollingIskHr(buckets, bucketMinutes) {
+  const windowSize = Math.max(1, Math.round(60 / bucketMinutes));
   return buckets.map((b, i) => {
     const slice = buckets.slice(Math.max(0, i - windowSize + 1), i + 1);
     const totalEarned  = slice.reduce((sum, x) => sum + (x.isk_earned || 0) + (x.loot_value || 0), 0);
-    const totalMinutes = slice.length * 20;
+    const totalMinutes = slice.length * bucketMinutes;
     return totalMinutes > 0 ? Math.round((totalEarned / totalMinutes) * 60) : 0;
   });
 }
@@ -839,7 +847,6 @@ function _renderEventRow(ctx, events, buckets, _attempt) {
         'z-index:10',
       ].join(';');
       badge.textContent = shape;
-      console.log(`[events] badge type=${ev.type} bi=${bi} centerX=${centerX.toFixed(1)} topPx=${topPx}`);
       badge.addEventListener('mouseenter', e => _showEvTip(e, label, color));
       badge.addEventListener('mousemove',  _moveEvTip);
       badge.addEventListener('mouseleave', _hideEvTip);
@@ -857,10 +864,11 @@ function renderTimeline(data) {
   const el = document.getElementById('iskTimelineChart');
 
   if (tlView === '20min') {
-    const buckets   = data.buckets || [];
+    const buckets      = data.buckets || [];
+    const bucketMins   = data.bucket_minutes || 20;
     const earned    = buckets.map(b => b.isk_earned || 0);
     const lootVals  = buckets.map(b => b.loot_value  || 0);
-    const avgLine   = rollingIskHr(buckets, 3); // 3 × 20 min = 60-min rolling window
+    const avgLine   = rollingIskHr(buckets, bucketMins); // ~60-min rolling window
     const LOOT_CLR  = '#8a6eab';
 
     iskTimelineInst = new ApexCharts(el, {
@@ -1392,7 +1400,6 @@ async function triggerSync(cid) {
 
 setRange('week');
 loadTimeline();
-loadFitting();
 
 
 async function loadClone() {
