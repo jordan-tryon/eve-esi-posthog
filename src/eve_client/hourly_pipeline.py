@@ -1,5 +1,6 @@
 """Hourly snapshot orchestration."""
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
@@ -28,6 +29,7 @@ def run_hourly_snapshot(
     analytics: Analytics,
     store: SnapshotStore,
 ):
+    t0_total = time.perf_counter()
     now = _utcnow()
     print(f"[sync] {now} — character {character_id}")
 
@@ -35,6 +37,7 @@ def run_hourly_snapshot(
     esi = ESIClient(access_token=token)
 
     # --- Fetch raw ESI data (all independent — run in parallel) ---
+    t0 = time.perf_counter()
     _fetches = {
         "public_info":    (esi.get_public_info,    character_id),
         "wallet_balance": (esi.get_wallet,         character_id),
@@ -60,6 +63,7 @@ def run_hourly_snapshot(
     with ThreadPoolExecutor(max_workers=9) as _pool:
         for _key, _val in _pool.map(_run_fetch, _fetches):
             _results[_key] = _val
+    print(f"  [t] parallel ESI fetch: {time.perf_counter()-t0:.2f}s")
 
     public_info    = _results["public_info"]
     wallet_balance = _results["wallet_balance"]
@@ -71,16 +75,17 @@ def run_hourly_snapshot(
     all_assets     = _results["all_assets"]
     market_prices  = _results["market_prices"]
 
-    # Resolve system info
+    # Resolve system info + ship group (two sequential calls; could be parallelized if needed)
+    t0 = time.perf_counter()
     system_id   = location.get("solar_system_id")
     system_info = _safe(lambda: esi.get_system_info(system_id), {}) if system_id else {}
     security_status = system_info.get("security_status")
     system_name     = system_info.get("name")
 
-    # Resolve ship group
     ship_type_id  = ship.get("ship_type_id")
     type_info     = _safe(lambda: esi.get_type_info(ship_type_id), {}) if ship_type_id else {}
     ship_group_id = type_info.get("group_id")
+    print(f"  [t] system+ship resolve: {time.perf_counter()-t0:.2f}s")
 
     # Keep characters table current
     if public_info:
@@ -155,6 +160,7 @@ def run_hourly_snapshot(
             print(f"  [session] ISK earned this session: {session_isk:,.0f}")
 
     # --- Killmails ---
+    t0 = time.perf_counter()
     recent_km_list = _safe(lambda: esi.get_killmails_recent(character_id), [])
     candidate_ids  = [km["killmail_id"] for km in recent_km_list]
     unseen_ids     = store.get_unseen_killmail_ids(character_id, candidate_ids)
@@ -198,17 +204,21 @@ def run_hourly_snapshot(
 
     if new_killmails:
         store.save_killmails(character_id, new_killmails)
+    print(f"  [t] killmails ({len(unseen_ids)} new): {time.perf_counter()-t0:.2f}s")
 
     since_24h     = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     recent_losses = store.get_recent_losses(character_id, since_24h)
 
     # --- Save journal and skills ---
+    t0 = time.perf_counter()
     if journal_raw:
         store.save_journal_entries(character_id, journal_raw)
     if skills_data.get("skills"):
         store.save_skills(character_id, skills_data["skills"])
+    print(f"  [t] journal+skills save ({len(journal_raw)} entries): {time.perf_counter()-t0:.2f}s")
 
     # Resolve and cache skill names (only for skills with NULL name)
+    t0 = time.perf_counter()
     unnamed = [r[0] for r in store.conn.execute(
         "SELECT skill_id FROM skills WHERE character_id=? AND skill_name IS NULL",
         (character_id,)
@@ -221,8 +231,10 @@ def run_hourly_snapshot(
             print(f"  [skills] Resolved {len(name_map)} skill names")
         except Exception as e:
             print(f"  [warn] Skill name resolution failed: {e}")
+    print(f"  [t] skill names ({len(unnamed)} unnamed): {time.perf_counter()-t0:.2f}s")
 
     # Resolve and cache skill group names (only for named skills missing a group)
+    t0 = time.perf_counter()
     ungrouped = [r[0] for r in store.conn.execute(
         "SELECT skill_id FROM skills WHERE character_id=? AND skill_name IS NOT NULL AND group_name IS NULL",
         (character_id,)
@@ -249,6 +261,7 @@ def run_hourly_snapshot(
                 print(f"  [skills] Resolved {len(group_map)} skill groups")
         except Exception as e:
             print(f"  [warn] Skill group resolution failed: {e}")
+    print(f"  [t] skill groups ({len(ungrouped)} ungrouped): {time.perf_counter()-t0:.2f}s")
 
     # --- Compute metrics ---
     # Total ISK/hr = wallet delta (real net flow). Category breakdown from journal.
@@ -358,4 +371,5 @@ def run_hourly_snapshot(
     analytics.flush()
 
     print(f"[sync] Done — {public_info.get('name')} | {wallet_balance:,.0f} ISK | {'ONLINE' if is_online else 'offline'} | risk: {risk_level} | activity: {activity_type}")
+    print(f"[sync] [t] total hourly snapshot: {time.perf_counter()-t0_total:.2f}s")
     return snap

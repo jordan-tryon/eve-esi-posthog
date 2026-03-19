@@ -323,13 +323,17 @@ class SnapshotStore:
         now = _utcnow()
         for s in skills:
             self.conn.execute(
-                """INSERT OR REPLACE INTO skills
-                   (character_id, skill_id, skill_name, trained_level, active_level, skillpoints, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO skills
+                   (character_id, skill_id, trained_level, active_level, skillpoints, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(character_id, skill_id) DO UPDATE SET
+                     trained_level = excluded.trained_level,
+                     active_level  = excluded.active_level,
+                     skillpoints   = excluded.skillpoints,
+                     updated_at    = excluded.updated_at""",
                 (
                     character_id,
                     s["skill_id"],
-                    s.get("skill_name"),
                     s["trained_skill_level"],
                     s["active_skill_level"],
                     s["skillpoints_in_skill"],

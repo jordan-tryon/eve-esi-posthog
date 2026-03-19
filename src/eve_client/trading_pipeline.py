@@ -1,5 +1,7 @@
 """Trading data sync pipeline."""
 
+import time
+
 from .auth import EveAuth
 from .esi import ESIClient
 from .store import SnapshotStore
@@ -7,19 +9,22 @@ from .store import SnapshotStore
 
 def run_trading_sync(character_id: int, auth: EveAuth, store: SnapshotStore, esi: ESIClient):
     """Fetch and store wallet transactions and market orders for a character."""
+    t0_total = time.perf_counter()
 
     # ── Transactions ──────────────────────────────────────────────────────────
     since_id = store.get_latest_transaction_id(character_id)
     print(f"[trading] Fetching transactions for {character_id} (since_id={since_id})")
 
+    t0 = time.perf_counter()
     raw_txs = esi.get_wallet_transactions_all(character_id, since_id=since_id)
-    print(f"[trading] Got {len(raw_txs)} new transactions")
+    print(f"[trading] Got {len(raw_txs)} new transactions in {time.perf_counter()-t0:.2f}s")
 
     if raw_txs:
         # Resolve unknown type_ids via universe/names/
         unknown_type_ids = list({t["type_id"] for t in raw_txs if not t.get("type_name")})
         type_names: dict[int, str] = {}
         if unknown_type_ids:
+            t0 = time.perf_counter()
             try:
                 # ESI caps at 1000 per call
                 for i in range(0, len(unknown_type_ids), 1000):
@@ -30,7 +35,9 @@ def run_trading_sync(character_id: int, auth: EveAuth, store: SnapshotStore, esi
                             type_names[item["id"]] = item["name"]
             except Exception as exc:
                 print(f"[trading] Name resolution failed: {exc}")
+            print(f"  [t] tx name resolution ({len(unknown_type_ids)} ids): {time.perf_counter()-t0:.2f}s")
 
+        t0 = time.perf_counter()
         entries = []
         for t in raw_txs:
             entries.append({
@@ -46,9 +53,11 @@ def run_trading_sync(character_id: int, auth: EveAuth, store: SnapshotStore, esi
                 "journal_ref_id": t.get("journal_ref_id"),
             })
         store.save_transactions(entries)
+        print(f"  [t] tx save ({len(entries)} rows): {time.perf_counter()-t0:.2f}s")
 
     # ── Orders ────────────────────────────────────────────────────────────────
     print(f"[trading] Fetching orders for {character_id}")
+    t0 = time.perf_counter()
 
     active_orders = []
     try:
@@ -62,12 +71,13 @@ def run_trading_sync(character_id: int, auth: EveAuth, store: SnapshotStore, esi
     except Exception as exc:
         print(f"[trading] Order history fetch failed: {exc}")
 
-    print(f"[trading] Got {len(active_orders)} active, {len(history_orders)} historical orders")
+    print(f"[trading] Got {len(active_orders)} active, {len(history_orders)} historical orders in {time.perf_counter()-t0:.2f}s")
 
     # Resolve type names for orders
     all_order_type_ids = list({o["type_id"] for o in active_orders + history_orders})
     order_type_names: dict[int, str] = {}
     if all_order_type_ids:
+        t0 = time.perf_counter()
         try:
             for i in range(0, len(all_order_type_ids), 1000):
                 batch = all_order_type_ids[i:i + 1000]
@@ -77,7 +87,9 @@ def run_trading_sync(character_id: int, auth: EveAuth, store: SnapshotStore, esi
                         order_type_names[item["id"]] = item["name"]
         except Exception as exc:
             print(f"[trading] Order name resolution failed: {exc}")
+        print(f"  [t] order name resolution ({len(all_order_type_ids)} ids): {time.perf_counter()-t0:.2f}s")
 
+    t0 = time.perf_counter()
     orders_to_save = []
     for o in active_orders:
         orders_to_save.append({
@@ -116,5 +128,6 @@ def run_trading_sync(character_id: int, auth: EveAuth, store: SnapshotStore, esi
 
     if orders_to_save:
         store.save_orders(orders_to_save)
+    print(f"  [t] orders save ({len(orders_to_save)} rows): {time.perf_counter()-t0:.2f}s")
 
-    print(f"[trading] Sync complete for {character_id}")
+    print(f"[trading] [t] total trading sync: {time.perf_counter()-t0_total:.2f}s")
