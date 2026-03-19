@@ -34,16 +34,42 @@ def run_hourly_snapshot(
     token = auth.get_valid_token(character_id)
     esi = ESIClient(access_token=token)
 
-    # --- Fetch raw ESI data ---
-    public_info    = _safe(lambda: esi.get_public_info(character_id), {})
-    wallet_balance = _safe(lambda: esi.get_wallet(character_id), 0.0)
-    journal_raw    = _safe(lambda: esi.get_wallet_journal(character_id), [])
-    location       = _safe(lambda: esi.get_location(character_id), {})
-    ship           = _safe(lambda: esi.get_ship(character_id), {})
-    skills_data    = _safe(lambda: esi.get_skills(character_id), {})
-    online_info    = _safe(lambda: esi.get_online(character_id), {})
-    all_assets     = _safe(lambda: esi.get_assets_all(character_id), [])
-    market_prices  = _safe(lambda: esi.get_market_prices(), [])
+    # --- Fetch raw ESI data (all independent — run in parallel) ---
+    _fetches = {
+        "public_info":    (esi.get_public_info,    character_id),
+        "wallet_balance": (esi.get_wallet,         character_id),
+        "journal_raw":    (esi.get_wallet_journal, character_id),
+        "location":       (esi.get_location,       character_id),
+        "ship":           (esi.get_ship,           character_id),
+        "skills_data":    (esi.get_skills,         character_id),
+        "online_info":    (esi.get_online,         character_id),
+        "all_assets":     (esi.get_assets_all,     character_id),
+        "market_prices":  (esi.get_market_prices,),
+    }
+    _defaults = {
+        "public_info": {}, "wallet_balance": 0.0, "journal_raw": [],
+        "location": {}, "ship": {}, "skills_data": {}, "online_info": {},
+        "all_assets": [], "market_prices": [],
+    }
+    _results: dict = {}
+
+    def _run_fetch(key):
+        fn, *args = _fetches[key]
+        return key, _safe(lambda: fn(*args), _defaults[key])
+
+    with ThreadPoolExecutor(max_workers=9) as _pool:
+        for _key, _val in _pool.map(_run_fetch, _fetches):
+            _results[_key] = _val
+
+    public_info    = _results["public_info"]
+    wallet_balance = _results["wallet_balance"]
+    journal_raw    = _results["journal_raw"]
+    location       = _results["location"]
+    ship           = _results["ship"]
+    skills_data    = _results["skills_data"]
+    online_info    = _results["online_info"]
+    all_assets     = _results["all_assets"]
+    market_prices  = _results["market_prices"]
 
     # Resolve system info
     system_id   = location.get("solar_system_id")
