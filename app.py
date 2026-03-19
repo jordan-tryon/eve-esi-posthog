@@ -47,6 +47,30 @@ _trading_sync_jobs: dict[int, dict] = {}   # character_id → {running, last, er
 
 # ── Scheduler helpers ─────────────────────────────────────────────────────────
 
+def _run_full_sync(character_id: int):
+    """Core sync logic shared by scheduler and manual trigger."""
+    _sync_jobs.setdefault(character_id, {})["running"] = True
+    _sync_jobs[character_id]["error"] = None
+    try:
+        run_hourly_snapshot(character_id, auth, analytics, store)
+        token = auth.get_valid_token(character_id)
+        esi = ESIClient(access_token=token)
+        try:
+            run_trading_sync(character_id, auth, store, esi)
+        finally:
+            esi.close()
+        now = datetime.now(timezone.utc).isoformat()
+        _sync_jobs[character_id]["last"] = now
+        _trading_sync_jobs.setdefault(character_id, {})["last"] = now
+        _trading_sync_jobs[character_id]["running"] = False
+        _trading_sync_jobs[character_id]["error"] = None
+    except Exception as e:
+        _sync_jobs[character_id]["error"] = str(e)
+        print(f"[scheduler] Error syncing {character_id}: {e}")
+    finally:
+        _sync_jobs[character_id]["running"] = False
+
+
 def _make_sync_fn(character_id: int):
     def _sync():
         # When offline, only sync hourly to save API calls
@@ -60,28 +84,7 @@ def _make_sync_fn(character_id: int):
                     return
             except Exception:
                 pass
-        _sync_jobs.setdefault(character_id, {})["running"] = True
-        _sync_jobs[character_id]["error"] = None
-        try:
-            run_hourly_snapshot(character_id, auth, analytics, store)
-            # Trading sync: full backfill on first run, incremental thereafter
-            token = auth.get_valid_token(character_id)
-            esi = ESIClient(access_token=token)
-            try:
-                run_trading_sync(character_id, auth, store, esi)
-            finally:
-                esi.close()
-            now = datetime.now(timezone.utc).isoformat()
-            _sync_jobs[character_id]["last"] = now
-            # Also update trading sync timestamp so the trading page can read it
-            _trading_sync_jobs.setdefault(character_id, {})["last"] = now
-            _trading_sync_jobs[character_id]["running"] = False
-            _trading_sync_jobs[character_id]["error"] = None
-        except Exception as e:
-            _sync_jobs[character_id]["error"] = str(e)
-            print(f"[scheduler] Error syncing {character_id}: {e}")
-        finally:
-            _sync_jobs[character_id]["running"] = False
+        _run_full_sync(character_id)
     return _sync
 
 
@@ -782,10 +785,11 @@ def api_sync(character_id: int, background_tasks: BackgroundTasks):
         return JSONResponse({"error": "character not registered"}, status_code=404)
     if _sync_jobs.get(character_id, {}).get("running"):
         return JSONResponse({"status": "already_running"})
-    # Mark running BEFORE handing off to background so status polls don't race
+    # Mark running BEFORE handing off so status polls don't race
     _sync_jobs.setdefault(character_id, {})["running"] = True
     _sync_jobs[character_id]["error"] = None
-    background_tasks.add_task(_make_sync_fn(character_id))
+    # Manual trigger bypasses the offline-hourly throttle
+    background_tasks.add_task(_run_full_sync, character_id)
     return JSONResponse({"status": "started"})
 
 

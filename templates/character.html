@@ -1336,18 +1336,31 @@ async function triggerSync(cid) {
   spinner.style.display = 'inline-block';
   btn.disabled = true;
 
-  await fetch(`/api/c/${cid}/sync`, {method:'POST'});
+  const resp = await fetch(`/api/c/${cid}/sync`, {method:'POST'});
+  const init = await resp.json();
+  if (init.status === 'already_running') {
+    // A scheduler sync is in progress — poll until it finishes
+  }
 
+  const deadline = Date.now() + 90_000; // 90s hard timeout
   const iv = setInterval(async () => {
+    if (Date.now() > deadline) {
+      clearInterval(iv);
+      spinner.style.display = 'none';
+      btn.disabled = false;
+      btnText.textContent = 'Sync Now';
+      return;
+    }
     const s = await (await fetch(`/api/c/${cid}/status`)).json();
     if (!s.running) {
       clearInterval(iv);
       spinner.style.display = 'none';
       btn.disabled = false;
       if (s.error) {
-        btnText.textContent = 'Sync Now';
+        btnText.textContent = 'Error';
+        setTimeout(() => { btnText.textContent = 'Sync Now'; }, 3000);
       } else {
-        btnText.textContent = 'Done ✓';
+        btnText.textContent = 'Done';
         setTimeout(() => { btnText.textContent = 'Sync Now'; }, 2000);
         location.reload();
       }
