@@ -73,21 +73,40 @@ def run_trading_sync(character_id: int, auth: EveAuth, store: SnapshotStore, esi
 
     print(f"[trading] Got {len(active_orders)} active, {len(history_orders)} historical orders in {time.perf_counter()-t0:.2f}s")
 
-    # Resolve type names for orders
+    # Resolve type names for orders — skip IDs already named in the DB
     all_order_type_ids = list({o["type_id"] for o in active_orders + history_orders})
-    order_type_names: dict[int, str] = {}
+    known_names: dict[int, str] = {}
     if all_order_type_ids:
+        placeholders = ",".join("?" * len(all_order_type_ids))
+        for row in store.conn.execute(
+            f"SELECT type_id, type_name FROM market_orders WHERE type_id IN ({placeholders}) AND type_name IS NOT NULL",
+            all_order_type_ids,
+        ).fetchall():
+            known_names[row[0]] = row[1]
+        # Also check wallet_transactions for cached names
+        for row in store.conn.execute(
+            f"SELECT type_id, type_name FROM wallet_transactions WHERE type_id IN ({placeholders}) AND type_name IS NOT NULL",
+            all_order_type_ids,
+        ).fetchall():
+            if row[0] not in known_names:
+                known_names[row[0]] = row[1]
+
+    unknown_order_type_ids = [tid for tid in all_order_type_ids if tid not in known_names]
+    order_type_names: dict[int, str] = dict(known_names)
+    if unknown_order_type_ids:
         t0 = time.perf_counter()
         try:
-            for i in range(0, len(all_order_type_ids), 1000):
-                batch = all_order_type_ids[i:i + 1000]
+            for i in range(0, len(unknown_order_type_ids), 1000):
+                batch = unknown_order_type_ids[i:i + 1000]
                 resolved = esi.get_universe_names(batch)
                 for item in resolved:
                     if item.get("category") == "inventory_type":
                         order_type_names[item["id"]] = item["name"]
         except Exception as exc:
             print(f"[trading] Order name resolution failed: {exc}")
-        print(f"  [t] order name resolution ({len(all_order_type_ids)} ids): {time.perf_counter()-t0:.2f}s")
+        print(f"  [t] order name resolution ({len(unknown_order_type_ids)} new ids): {time.perf_counter()-t0:.2f}s")
+    else:
+        print(f"  [t] order name resolution: all {len(all_order_type_ids)} names cached, skipped ESI call")
 
     t0 = time.perf_counter()
     orders_to_save = []

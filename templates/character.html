@@ -769,14 +769,22 @@ function _hideEvTip() { _evTip.style.display = 'none'; }
  * Max 3 badges per row; excess events wrap to a second row.
  * Uses chart.w.globals for pixel-accurate bar alignment.
  */
-function _renderEventRow(ctx, events, buckets) {
+function _renderEventRow(ctx, events, buckets, _attempt) {
   const row = document.getElementById('timelineEvents');
   if (!row) return;
-  row.innerHTML = '';
-  if (!events?.length || !buckets.length) return;
+  if (!events?.length || !buckets.length) { row.innerHTML = ''; return; }
 
-  const g = ctx.w.globals;
-  if (!g.gridWidth) return;
+  const g = ctx?.w?.globals;
+  if (!g) { console.warn('[events] no globals on ctx', ctx); return; }
+  if (!g.gridWidth) {
+    if ((_attempt || 0) < 5) {
+      setTimeout(() => _renderEventRow(ctx, events, buckets, (_attempt || 0) + 1), 60);
+    } else {
+      console.warn('[events] gridWidth=0 after retries, bailing');
+    }
+    return;
+  }
+  row.innerHTML = '';
   const barWidth  = g.gridWidth / buckets.length;
   const ROW_H     = 20;
   const MAX_COL   = 3;
@@ -821,6 +829,7 @@ function _renderEventRow(ctx, events, buckets) {
         'z-index:10',
       ].join(';');
       badge.textContent = shape;
+      console.log(`[events] badge type=${ev.type} bi=${bi} centerX=${centerX.toFixed(1)} topPx=${topPx}`);
       badge.addEventListener('mouseenter', e => _showEvTip(e, label, color));
       badge.addEventListener('mousemove',  _moveEvTip);
       badge.addEventListener('mouseleave', _hideEvTip);
@@ -888,7 +897,7 @@ function renderTimeline(data) {
       },
       dataLabels: { enabled: false },
     });
-    iskTimelineInst.render().then(() => _renderEventRow(iskTimelineInst, data.events, buckets));
+    iskTimelineInst.render();
 
   } else {
     // Sessions view — ISK/hr bar per session

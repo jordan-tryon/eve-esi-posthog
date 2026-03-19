@@ -10,6 +10,9 @@ from .esi import ESIClient
 from .metrics import compute_isk_rates, compute_risk_level, detect_activity_type, detect_session_type, ESCROW_RETURN_TYPES
 from .store import SnapshotStore
 
+_PRICES_CACHE: list = []
+_PRICES_EXPIRES: float = 0.0
+
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -38,6 +41,13 @@ def run_hourly_snapshot(
 
     # --- Fetch raw ESI data (all independent — run in parallel) ---
     t0 = time.perf_counter()
+    global _PRICES_CACHE, _PRICES_EXPIRES
+    if time.time() < _PRICES_EXPIRES:
+        _cached_prices = _PRICES_CACHE
+        print("  [t] market prices: cached")
+    else:
+        _cached_prices = None
+
     _fetches = {
         "public_info":    (esi.get_public_info,    character_id),
         "wallet_balance": (esi.get_wallet,         character_id),
@@ -47,8 +57,10 @@ def run_hourly_snapshot(
         "skills_data":    (esi.get_skills,         character_id),
         "online_info":    (esi.get_online,         character_id),
         "all_assets":     (esi.get_assets_all,     character_id),
-        "market_prices":  (esi.get_market_prices,),
     }
+    if _cached_prices is None:
+        _fetches["market_prices"] = (esi.get_market_prices,)
+
     _defaults = {
         "public_info": {}, "wallet_balance": 0.0, "journal_raw": [],
         "location": {}, "ship": {}, "skills_data": {}, "online_info": {},
@@ -73,18 +85,33 @@ def run_hourly_snapshot(
     skills_data    = _results["skills_data"]
     online_info    = _results["online_info"]
     all_assets     = _results["all_assets"]
-    market_prices  = _results["market_prices"]
+    if _cached_prices is not None:
+        market_prices = _cached_prices
+    else:
+        market_prices = _results.get("market_prices", [])
+        if market_prices:
+            _PRICES_CACHE   = market_prices
+            _PRICES_EXPIRES = time.time() + 1800  # 30-minute cache
 
-    # Resolve system info + ship group (two sequential calls; could be parallelized if needed)
+    # Resolve system info + ship group in parallel
     t0 = time.perf_counter()
-    system_id   = location.get("solar_system_id")
-    system_info = _safe(lambda: esi.get_system_info(system_id), {}) if system_id else {}
+    system_id    = location.get("solar_system_id")
+    ship_type_id = ship.get("ship_type_id")
+
+    system_info = {}
+    type_info   = {}
+    _resolve = {}
+    if system_id:    _resolve["sys"]  = (esi.get_system_info, system_id)
+    if ship_type_id: _resolve["ship"] = (esi.get_type_info,   ship_type_id)
+    if _resolve:
+        with ThreadPoolExecutor(max_workers=2) as _p:
+            for _k, _v in _p.map(lambda kv: (kv[0], _safe(lambda fn=kv[1][0], a=kv[1][1]: fn(a), {})), _resolve.items()):
+                if _k == "sys":  system_info = _v
+                if _k == "ship": type_info   = _v
+
     security_status = system_info.get("security_status")
     system_name     = system_info.get("name")
-
-    ship_type_id  = ship.get("ship_type_id")
-    type_info     = _safe(lambda: esi.get_type_info(ship_type_id), {}) if ship_type_id else {}
-    ship_group_id = type_info.get("group_id")
+    ship_group_id   = type_info.get("group_id")
     print(f"  [t] system+ship resolve: {time.perf_counter()-t0:.2f}s")
 
     # Keep characters table current
@@ -96,6 +123,13 @@ def run_hourly_snapshot(
     last_login  = online_info.get("last_login")
     last_logout = online_info.get("last_logout")
 
+    # If offline, ensure no sessions are left open (handles crashes/missed logouts)
+    if not is_online and last_logout:
+        stale = store.get_open_session(character_id)
+        if stale:
+            print(f"  [session] Closing stale open session (char offline since {last_logout})")
+            store.close_session(character_id, stale["started_at"], last_logout, 0.0)
+
     # --- Previous snapshot for delta/session comparison ---
     prev = store.get_last_snapshot(character_id)
 
@@ -106,23 +140,32 @@ def run_hourly_snapshot(
 
         # New login detected
         if last_login and last_login != prev_last_login:
-            print(f"  [session] Login detected at {last_login}")
-            session_type = detect_session_type(ship_group_id)
-            store.save_session_start(
-                character_id, last_login,
-                ship_type_id, ship.get("ship_name"),
-                system_id, system_name, security_status,
-                session_type=session_type,
-            )
-            analytics.capture_session_start(character_id, {
-                "started_at":      last_login,
-                "ship_type_id":    ship_type_id,
-                "ship_name":       ship.get("ship_name"),
-                "solar_system_id": system_id,
-                "system_name":     system_name,
-                "security_status": security_status,
-                "session_type":    session_type,
-            })
+            # Guard against ESI timestamp jitter (same session can vary ±5s across calls)
+            near_dup = store.conn.execute(
+                """SELECT id FROM sessions WHERE character_id=?
+                   AND ABS(CAST((JULIANDAY(started_at) - JULIANDAY(?)) * 86400 AS INTEGER)) < 120""",
+                (character_id, last_login),
+            ).fetchone()
+            if near_dup:
+                print(f"  [session] Suppressed near-duplicate login at {last_login} (existing id={near_dup[0]})")
+            else:
+                print(f"  [session] Login detected at {last_login}")
+                session_type = detect_session_type(ship_group_id)
+                store.save_session_start(
+                    character_id, last_login,
+                    ship_type_id, ship.get("ship_name"),
+                    system_id, system_name, security_status,
+                    session_type=session_type,
+                )
+                analytics.capture_session_start(character_id, {
+                    "started_at":      last_login,
+                    "ship_type_id":    ship_type_id,
+                    "ship_name":       ship.get("ship_name"),
+                    "solar_system_id": system_id,
+                    "system_name":     system_name,
+                    "security_status": security_status,
+                    "session_type":    session_type,
+                })
 
         # New logout detected
         if last_logout and last_logout != prev_last_logout:

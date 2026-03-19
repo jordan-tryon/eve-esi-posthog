@@ -216,6 +216,22 @@ class SnapshotStore:
             if col not in session_cols:
                 self.conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {typedef}")
 
+        # Performance indexes
+        self.conn.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_snapshots_char_time
+                ON snapshots(character_id, captured_at);
+            CREATE INDEX IF NOT EXISTS idx_journal_char_date
+                ON wallet_journal(character_id, date);
+            CREATE INDEX IF NOT EXISTS idx_sessions_char_time
+                ON sessions(character_id, started_at);
+            CREATE INDEX IF NOT EXISTS idx_killmails_char_time
+                ON killmails(character_id, kill_time);
+            CREATE INDEX IF NOT EXISTS idx_transactions_char_date
+                ON wallet_transactions(character_id, date);
+            CREATE INDEX IF NOT EXISTS idx_orders_char
+                ON market_orders(character_id);
+        """)
+
         self.conn.commit()
 
     # --- Snapshots ---
@@ -253,21 +269,16 @@ class SnapshotStore:
     # --- Wallet journal ---
 
     def save_journal_entries(self, character_id: int, entries: list[dict]):
-        for e in entries:
-            self.conn.execute(
-                """INSERT OR IGNORE INTO wallet_journal
-                   (journal_id, character_id, date, ref_type, amount, balance, description)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    e["id"],
-                    character_id,
-                    e["date"],
-                    e["ref_type"],
-                    e["amount"],
-                    e.get("balance"),
-                    e.get("description", ""),
-                ),
-            )
+        self.conn.executemany(
+            """INSERT OR IGNORE INTO wallet_journal
+               (journal_id, character_id, date, ref_type, amount, balance, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (e["id"], character_id, e["date"], e["ref_type"],
+                 e["amount"], e.get("balance"), e.get("description", ""))
+                for e in entries
+            ],
+        )
         self.conn.commit()
 
     def get_journal_entries_between(self, character_id: int, since: str, until: str) -> list[dict]:
@@ -321,25 +332,21 @@ class SnapshotStore:
 
     def save_skills(self, character_id: int, skills: list[dict]):
         now = _utcnow()
-        for s in skills:
-            self.conn.execute(
-                """INSERT INTO skills
-                   (character_id, skill_id, trained_level, active_level, skillpoints, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(character_id, skill_id) DO UPDATE SET
-                     trained_level = excluded.trained_level,
-                     active_level  = excluded.active_level,
-                     skillpoints   = excluded.skillpoints,
-                     updated_at    = excluded.updated_at""",
-                (
-                    character_id,
-                    s["skill_id"],
-                    s["trained_skill_level"],
-                    s["active_skill_level"],
-                    s["skillpoints_in_skill"],
-                    now,
-                ),
-            )
+        self.conn.executemany(
+            """INSERT INTO skills
+               (character_id, skill_id, trained_level, active_level, skillpoints, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(character_id, skill_id) DO UPDATE SET
+                 trained_level = excluded.trained_level,
+                 active_level  = excluded.active_level,
+                 skillpoints   = excluded.skillpoints,
+                 updated_at    = excluded.updated_at""",
+            [
+                (character_id, s["skill_id"], s["trained_skill_level"],
+                 s["active_skill_level"], s["skillpoints_in_skill"], now)
+                for s in skills
+            ],
+        )
         self.conn.commit()
 
     def get_skills(self, character_id: int) -> list[dict]:
@@ -359,20 +366,18 @@ class SnapshotStore:
 
     def update_skill_names(self, character_id: int, names: dict):
         """Update skill_name for known skill_ids. names = {skill_id: name}"""
-        for skill_id, name in names.items():
-            self.conn.execute(
-                "UPDATE skills SET skill_name=? WHERE character_id=? AND skill_id=?",
-                (name, character_id, skill_id)
-            )
+        self.conn.executemany(
+            "UPDATE skills SET skill_name=? WHERE character_id=? AND skill_id=?",
+            [(name, character_id, skill_id) for skill_id, name in names.items()],
+        )
         self.conn.commit()
 
     def update_skill_groups(self, character_id: int, groups: dict):
         """Update group_name for known skill_ids. groups = {skill_id: group_name}"""
-        for skill_id, group_name in groups.items():
-            self.conn.execute(
-                "UPDATE skills SET group_name=? WHERE character_id=? AND skill_id=?",
-                (group_name, character_id, skill_id)
-            )
+        self.conn.executemany(
+            "UPDATE skills SET group_name=? WHERE character_id=? AND skill_id=?",
+            [(gname, character_id, skill_id) for skill_id, gname in groups.items()],
+        )
         self.conn.commit()
 
     # --- Tokens ---

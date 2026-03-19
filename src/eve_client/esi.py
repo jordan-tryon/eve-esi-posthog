@@ -15,6 +15,7 @@ class ESIClient:
         }
         self._type_cache: dict[int, dict] = {}
         self._group_cache: dict[int, dict] = {}
+        self._system_cache: dict[int, dict] = {}
         # Persistent client — reuses TCP connections, thread-safe
         self._client = httpx.Client(
             headers=self._headers,
@@ -92,7 +93,9 @@ class ESIClient:
         return self._get(f"/killmails/{killmail_id}/{killmail_hash}/")
 
     def get_system_info(self, system_id: int) -> dict:
-        return self._get(f"/universe/systems/{system_id}/")
+        if system_id not in self._system_cache:
+            self._system_cache[system_id] = self._get(f"/universe/systems/{system_id}/")
+        return self._system_cache[system_id]
 
     def get_type_info(self, type_id: int) -> dict:
         if type_id not in self._type_cache:

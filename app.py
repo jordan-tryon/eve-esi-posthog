@@ -308,17 +308,17 @@ def _build_isk_buckets(journal: list, since_dt: datetime, until_dt: datetime,
     return buckets
 
 
-def _extract_timeline_events(snaps: list, sessions: list, buckets: list) -> list:
+def _extract_timeline_events(snaps: list, sessions: list, buckets: list, bucket_minutes: int = 20) -> list:
     if not buckets:
         return []
+    _bucket_size = timedelta(minutes=bucket_minutes)
 
     def _bucket_idx(ts_str: str) -> int:
         try:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             for i, b in enumerate(buckets):
                 b_start = datetime.fromisoformat(b["start"])
-                b_end   = b_start + timedelta(minutes=20)
-                if b_start <= ts < b_end:
+                if b_start <= ts < b_start + _bucket_size:
                     return i
             # clamp to last bucket if after end
             last = datetime.fromisoformat(buckets[-1]["start"])
@@ -474,7 +474,7 @@ def api_isk_timeline(character_id: int, hours: int = 24):
 
     bucket_minutes = 60 if hours > 48 else 20
     buckets  = _build_isk_buckets(journal, since_dt, now, bucket_minutes)
-    events   = _extract_timeline_events(snaps, [s for s in sessions if s["started_at"] >= since], buckets)
+    events   = _extract_timeline_events(snaps, [s for s in sessions if s["started_at"] >= since], buckets, bucket_minutes)
     session_data = _build_session_isk(sessions, journal)
 
     journal_count = len(journal)
