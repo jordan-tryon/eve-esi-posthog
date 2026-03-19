@@ -1,5 +1,6 @@
 """10-minute asset delta tracking — items gained/lost during active sessions."""
 
+import time
 from datetime import datetime, timezone
 
 from .auth import EveAuth
@@ -88,12 +89,19 @@ def run_asset_tracking(character_id: int, auth: EveAuth, store: SnapshotStore):
         jita_prices = esi.get_jita_sell_prices(changed_types)
 
         # Fallback to adjusted market prices for types missing from Jita
+        # Use the module-level cache from hourly_pipeline if fresh, else fetch
         fallback: dict[int, float] = {}
         try:
-            fallback = {p["type_id"]: p.get("adjusted_price", 0.0)
-                        for p in esi.get_market_prices()}
-        except Exception:
-            pass
+            from .hourly_pipeline import _PRICES_CACHE, _PRICES_EXPIRES
+            if time.time() < _PRICES_EXPIRES and _PRICES_CACHE:
+                raw_prices = _PRICES_CACHE
+                print("[asset_tracker] market prices: using hourly_pipeline cache")
+            else:
+                raw_prices = esi.get_market_prices()
+                print("[asset_tracker] market prices: fetched fresh")
+            fallback = {p["type_id"]: p.get("adjusted_price", 0.0) for p in raw_prices}
+        except Exception as e:
+            print(f"[asset_tracker] WARNING: market prices fallback failed: {e}")
 
         def _price(type_id: int) -> float:
             return jita_prices.get(type_id) or fallback.get(type_id, 0.0)
