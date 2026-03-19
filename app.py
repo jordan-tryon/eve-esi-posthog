@@ -284,7 +284,7 @@ def api_current(character_id: int):
 
 
 def _build_isk_buckets(journal: list, since_dt: datetime, until_dt: datetime,
-                        minutes: int = 20) -> list:
+                        minutes: int = 20, sessions: list | None = None) -> list:
     bucket_size = timedelta(minutes=minutes)
     buckets = []
     t = since_dt
@@ -302,12 +302,33 @@ def _build_isk_buckets(journal: list, since_dt: datetime, until_dt: datetime,
                 earned += e["amount"]
         elapsed_h = (t_end - t).total_seconds() / 3600
         buckets.append({
-            "start":     t.isoformat(),
-            "label":     t.strftime("%H:%M") if minutes < 60 else t.strftime("%m/%d %H:%M"),
+            "start":      t.isoformat(),
+            "label":      t.strftime("%H:%M") if minutes < 60 else t.strftime("%m/%d %H:%M"),
             "isk_earned": round(earned, 2),
+            "loot_value": 0.0,
             "isk_hour":   round(earned / elapsed_h, 2) if elapsed_h > 0 else 0.0,
         })
         t += bucket_size
+
+    # Distribute each session's assets_gained_value evenly across its buckets
+    if sessions:
+        for s in sessions:
+            loot = s.get("assets_gained_value") or 0.0
+            if not loot:
+                continue
+            try:
+                s_start = datetime.fromisoformat(s["started_at"].replace("Z", "+00:00"))
+                s_end   = datetime.fromisoformat(s["ended_at"].replace("Z", "+00:00")) if s.get("ended_at") else until_dt
+            except Exception:
+                continue
+            idxs = [i for i, b in enumerate(buckets)
+                    if datetime.fromisoformat(b["start"]) + bucket_size > s_start
+                    and datetime.fromisoformat(b["start"]) < s_end]
+            if idxs:
+                per_bucket = loot / len(idxs)
+                for i in idxs:
+                    buckets[i]["loot_value"] = round(buckets[i]["loot_value"] + per_bucket, 2)
+
     return buckets
 
 
@@ -476,7 +497,7 @@ def api_isk_timeline(character_id: int, hours: int = 24):
     sessions = [dict(s) for s in reversed(sessions_rows)]  # chronological
 
     bucket_minutes = 60 if hours > 48 else 20
-    buckets  = _build_isk_buckets(journal, since_dt, now, bucket_minutes)
+    buckets  = _build_isk_buckets(journal, since_dt, now, bucket_minutes, sessions=sessions)
     events   = _extract_timeline_events(snaps, [s for s in sessions if s["started_at"] >= since], buckets, bucket_minutes)
     session_data = _build_session_isk(sessions, journal)
 
@@ -503,7 +524,7 @@ def api_fitting(character_id: int):
     all_assets = esi.get_assets_all(character_id)
     fitted     = [a for a in all_assets if a.get("location_id") == ship_item]
     prices_raw = esi.get_market_prices()
-    price_map  = {p["type_id"]: p.get("adjusted_price", 0.0) for p in prices_raw}
+    price_map  = {p["type_id"]: p.get("average_price") or p.get("adjusted_price", 0.0) for p in prices_raw}
 
     type_ids = list({a["type_id"] for a in fitted})
     names    = {

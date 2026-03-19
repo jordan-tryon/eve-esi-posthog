@@ -338,8 +338,10 @@ def run_hourly_snapshot(
             "isk_hour_other":    journal_rates["isk_hour_other"]     if journal_rates else 0.0,
         }
 
-    # --- Estimated total account value = wallet + assets at adjusted market price ---
-    price_map = {p["type_id"]: p.get("adjusted_price", 0.0) for p in market_prices}
+    # --- Estimated total account value = wallet + assets at average market price ---
+    # average_price = 30-day rolling transaction avg (matches in-game estimated value)
+    # adjusted_price = CCP industry index price, can diverge significantly
+    price_map = {p["type_id"]: p.get("average_price") or p.get("adjusted_price", 0.0) for p in market_prices}
     asset_value = sum(
         a.get("quantity", 1) * price_map.get(a["type_id"], 0.0)
         for a in all_assets
