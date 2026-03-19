@@ -1,0 +1,10 @@
+# Normalize all text files to LF in the repo; convert to CRLF on Windows checkout
+* text=auto eol=lf
+*.py text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.json text eol=lf
+*.env text eol=lf
