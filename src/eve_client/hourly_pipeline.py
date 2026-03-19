@@ -239,7 +239,7 @@ def run_hourly_snapshot(
     # their income flows through market_transaction (excluded as trade), so the
     # journal analysis can't detect them. Override here when the ship says otherwise.
     ship_session_type = detect_session_type(ship_group_id)
-    if ship_session_type in ("Mining", "Exploration"):
+    if is_online and ship_session_type in ("Mining", "Exploration"):
         activity_type = ship_session_type
 
     if prev and prev.get("wallet_balance") is not None and wallet_balance is not None:

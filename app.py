@@ -477,7 +477,16 @@ def api_isk_timeline(character_id: int, hours: int = 24):
     events   = _extract_timeline_events(snaps, [s for s in sessions if s["started_at"] >= since], buckets)
     session_data = _build_session_isk(sessions, journal)
 
-    return {"buckets": buckets, "events": events, "sessions": session_data}
+    journal_count = len(journal)
+    income_count  = sum(
+        1 for e in journal
+        if e["amount"] > 0 and e.get("ref_type") not in ESCROW_RETURN_TYPES
+    )
+
+    return {
+        "buckets": buckets, "events": events, "sessions": session_data,
+        "journal_count": journal_count, "income_count": income_count,
+    }
 
 
 @app.get("/api/c/{character_id}/fitting")
@@ -1071,22 +1080,20 @@ def api_untrack_item(character_id: int, type_id: int, region_id: int = 10000002)
 
 @app.get("/api/c/{character_id}/market-history/{type_id}")
 def api_market_history(character_id: int, type_id: int, region_id: int = 10000002):
-    history = store.get_market_history(type_id, region_id, days=30)
-    if not history:
-        esi = None
-        try:
-            token = auth.get_valid_token(character_id)
-            esi = ESIClient(access_token=token)
-            raw = esi.get_market_history(region_id, type_id)
-            rows = [{"type_id": type_id, "region_id": region_id, **r} for r in raw]
-            store.save_market_history(rows)
-            history = store.get_market_history(type_id, region_id, days=30)
-        except Exception as e:
-            print(f"[trading] Market history fetch failed for {type_id}: {e}")
-        finally:
-            if esi:
-                esi.close()
-    return history
+    esi = None
+    try:
+        token = auth.get_valid_token(character_id)
+        esi = ESIClient(access_token=token)
+        raw = esi.get_market_history(region_id, type_id)
+        rows = [{"type_id": type_id, "region_id": region_id, **r} for r in raw]
+        store.clear_market_history(type_id, region_id)
+        store.save_market_history(rows)
+    except Exception as e:
+        print(f"[trading] Market history fetch failed for {type_id}: {e}")
+    finally:
+        if esi:
+            esi.close()
+    return store.get_market_history(type_id, region_id, days=30)
 
 
 @app.get("/api/c/{character_id}/inventory")

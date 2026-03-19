@@ -204,6 +204,8 @@ class SnapshotStore:
         tracked_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(tracked_items)").fetchall()}
         if "type_name" not in tracked_cols:
             self.conn.execute("ALTER TABLE tracked_items ADD COLUMN type_name TEXT")
+        if "history_synced_at" not in tracked_cols:
+            self.conn.execute("ALTER TABLE tracked_items ADD COLUMN history_synced_at TEXT")
 
         session_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(sessions)").fetchall()}
         for col, typedef in [
@@ -641,6 +643,13 @@ class SnapshotStore:
 
     # --- Market history ---
 
+    def clear_market_history(self, type_id: int, region_id: int):
+        self.conn.execute(
+            "DELETE FROM market_history WHERE type_id=? AND region_id=?",
+            (type_id, region_id),
+        )
+        self.conn.commit()
+
     def save_market_history(self, rows: list[dict]):
         for r in rows:
             self.conn.execute(
@@ -693,6 +702,13 @@ class SnapshotStore:
                 "DELETE FROM tracked_items WHERE character_id=? AND type_id=?",
                 (character_id, type_id),
             )
+        self.conn.commit()
+
+    def set_history_synced_at(self, character_id: int, type_id: int, region_id: int, ts: str):
+        self.conn.execute(
+            "UPDATE tracked_items SET history_synced_at=? WHERE character_id=? AND type_id=? AND region_id=?",
+            (ts, character_id, type_id, region_id),
+        )
         self.conn.commit()
 
     def get_tracked_items(self, character_id: int) -> list[dict]:

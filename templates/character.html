@@ -258,7 +258,7 @@
       {% if c.isk_hour is not none and c.isk_hour < 0 %}spice{% else %}sand{% endif %}">
       {% if c.isk_hour is not none %}{{ '{:+,.0f}'.format(c.isk_hour / 1e3) }}K{% else %}—{% endif %}
     </p>
-    <p id="statIskHourSub" class="text-dune-muted text-xs font-display mt-0.5 truncate">{{ c.activity_type or '—' }}</p>
+    <p id="statIskHourSub" class="text-dune-muted text-xs font-display mt-0.5 truncate">loading…</p>
   </div>
 
 </div>
@@ -616,7 +616,7 @@ function updateIskDrilldown() {
       const v = latest?.isk_hour;
       cardVal.textContent = v != null ? (v >= 0 ? '+' : '') + (v / 1e3).toFixed(0) + 'K' : '—';
       cardVal.style.color = v != null && v < 0 ? SPICE : SAND;
-      cardSub.textContent = latest?.activity_type || '—';
+      // sub-label is set by loadTimeline with journal counts; leave it alone here
       cardSub.style.color = '';
     }
   }
@@ -943,6 +943,12 @@ async function loadTimeline() {
   const data = await (await fetch(`/api/c/${CID}/isk-timeline?hours=${tlHours}`)).json();
   _tlData = data;
   renderTimeline(data);
+  // Update ISK/hr card sub-label with journal context
+  const sub = document.getElementById('statIskHourSub');
+  if (sub && data.journal_count != null) {
+    sub.textContent = `${data.journal_count} entries · ${data.income_count} income`;
+    sub.style.color = '';
+  }
 }
 // ────────────────────────────────────────────────────────────────────────────
 

@@ -700,6 +700,7 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
     ? `7d proj: ${projDelta >= 0 ? '+' : ''}${projDelta.toFixed(1)}% → ${fmtIsk(projEnd)}`
     : '';
 
+  const lastDate = history.length ? history[history.length - 1].date : null;
   container.innerHTML = `
     <div class="flex items-start justify-between mb-2">
       <div>
@@ -708,6 +709,7 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
         ${projLabel ? `<p class="text-xs font-mono mt-0.5" style="color:#38bdf8">${projLabel}</p>` : ''}
       </div>
       <div class="flex gap-2 items-center">
+        ${lastDate ? `<span class="text-xs font-mono text-dune-muted">as of ${lastDate}</span>` : ''}
         <span class="text-xs font-mono px-1.5 py-0.5 rounded-sm border border-dune-border" style="${vol.badge}">${vol.label}</span>
         <button onclick="untrackItem(${typeId})" class="text-base leading-none font-600 text-dune-muted hover:spice transition-colors px-1" title="Remove">×</button>
       </div>
@@ -744,22 +746,16 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
         {
           label: '7d Projection',
           data: projData,
-          borderColor: ctx => {
-            const i = ctx.p1DataIndex;
-            // Fade from sand → sky-blue across the first 3 projection segments
-            if (i <= projStartIdx) return '#c8a96e';
-            const t = Math.min((i - projStartIdx) / 3, 1);
-            const r = Math.round(200 + (56  - 200) * t);
-            const g = Math.round(169 + (189 - 169) * t);
-            const b = Math.round(110 + (248 - 110) * t);
-            return `rgb(${r},${g},${b})`;
-          },
+          borderColor: '#38bdf8',
           backgroundColor: 'rgba(56,189,248,0.07)',
           borderWidth: 1.5,
           pointRadius: 0,
           tension: 0.3,
           fill: true,
-          borderDash: ctx => ctx.p1DataIndex > projStartIdx ? [5, 4] : [],
+          borderDash: [5, 4],
+          segment: {
+            borderColor: ctx => ctx.p1DataIndex <= projStartIdx ? '#c8a96e' : '#38bdf8',
+          },
         }
       ]
     },
@@ -857,7 +853,9 @@ async function loadData() {
         if (!hresp.ok) throw new Error(`HTTP ${hresp.status}`);
         const history = await hresp.json();
         renderTrackedChart(item.type_id, item.type_name || String(item.type_id), history, null);
-      } catch {}
+      } catch (e) {
+        console.error(`[tracked] Failed to load history for type ${item.type_id}:`, e);
+      }
     }
 
   } catch (e) {
