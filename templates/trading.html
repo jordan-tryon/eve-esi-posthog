@@ -9,7 +9,7 @@
 {% set cid = character.character_id %}
 
 <!-- Header -->
-<div class="flex items-center gap-5 mb-6">
+<div class="flex items-center gap-5 mb-4">
   <a href="/c/{{ cid }}">
     <img src="https://images.evetech.net/characters/{{ cid }}/portrait?size=128"
          class="w-16 h-16 rounded-sm border border-dune-border flex-shrink-0 hover:border-dune-sand transition-colors"
@@ -36,61 +36,53 @@
 <!-- Error banner -->
 <div id="errorBanner" class="hidden mb-4 px-4 py-2 rounded-sm border border-red-900 text-red-400 text-sm font-mono" style="background:rgba(120,40,40,0.15)"></div>
 
-<!-- Summary strip -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-  <div class="card p-4">
-    <p class="label mb-1.5">Net P&amp;L (30d)</p>
-    <p class="metric-val text-lg" id="sumNetPnl">—</p>
-    <p class="text-xs font-mono text-dune-muted mt-1">ISK</p>
-  </div>
-  <div class="card p-4">
-    <p class="label mb-1.5">Avg Margin</p>
-    <p class="metric-val text-lg" id="sumAvgMargin">—</p>
-    <p class="text-xs font-mono text-dune-muted mt-1">%</p>
-  </div>
-  <div class="card p-4">
-    <p class="label mb-1.5">Fees Paid</p>
-    <p class="metric-val text-lg" id="sumFees">—</p>
-    <p class="text-xs font-mono text-dune-muted mt-1">ISK</p>
-  </div>
-  <div class="card p-4">
-    <p class="label mb-1.5">Cancelled Capital</p>
-    <p class="metric-val text-lg" id="sumCancelled">—</p>
-    <p class="text-xs font-mono text-dune-muted mt-1">ISK</p>
-  </div>
+<!-- Tab nav -->
+<div class="flex border-b border-dune-border mb-6">
+  <button onclick="setTab('overview')" id="tab-overview"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-dune-sand sand -mb-px transition-colors">
+    Overview
+  </button>
+  <button onclick="setTab('markets')" id="tab-markets"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+    Markets
+  </button>
+  <button onclick="setTab('inventory')" id="tab-inventory"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+    Inventory
+  </button>
 </div>
 
-<!-- ISK in Escrow -->
-<div class="card p-4 mb-6" id="escrowPanel">
-  <div class="flex items-center justify-between mb-3">
-    <p class="label">ISK in Escrow</p>
-    <span id="escrowTotal" class="font-mono text-sm" style="color:#c8a96e">loading…</span>
-  </div>
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-    <div>
-      <p class="label text-xs mb-1">Buy Orders</p>
-      <p id="escrowBuyOrders" class="font-mono text-dune-muted">—</p>
-    </div>
-    <div>
-      <p class="label text-xs mb-1">Collateral at Risk</p>
-      <p id="escrowCollateral" class="font-mono text-dune-muted">—</p>
-    </div>
-    <div>
-      <p class="label text-xs mb-1">Posted Rewards</p>
-      <p id="escrowRewards" class="font-mono text-dune-muted">—</p>
-    </div>
-    <div>
-      <p class="label text-xs mb-1">Auction Bids</p>
-      <p id="escrowAuction" class="font-mono text-dune-muted">—</p>
-    </div>
-  </div>
-</div>
+<!-- ── OVERVIEW TAB ─────────────────────────────────────────────────────────── -->
+<div id="tab-content-overview">
 
-<!-- Main grid -->
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+  <!-- Summary strip: 5 cards -->
+  <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+    <div class="card p-3">
+      <p class="label mb-1">Net P&amp;L (30d)</p>
+      <p class="font-mono font-600 text-sm sand" id="sumNetPnl">—</p>
+    </div>
+    <div class="card p-3">
+      <p class="label mb-1">Avg Margin</p>
+      <p class="font-mono font-600 text-sm text-dune-text" id="sumAvgMargin">—</p>
+    </div>
+    <div class="card p-3">
+      <p class="label mb-1">Fees Paid</p>
+      <p class="font-mono font-600 text-sm text-dune-muted" id="sumFees">—</p>
+    </div>
+    <div class="card p-3">
+      <p class="label mb-1">ISK in Escrow</p>
+      <p class="font-mono font-600 text-sm" style="color:#c8a96e" id="escrowTotal">—</p>
+    </div>
+    <div class="card p-3">
+      <p class="label mb-1">Cancelled Capital</p>
+      <p class="font-mono font-600 text-sm spice" id="sumCancelled">—</p>
+    </div>
+  </div>
 
-  <!-- Left: Trade Efficiency -->
-  <div class="flex flex-col gap-4">
+  <!-- Main 2-col: Trade Efficiency | Active Orders -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+
+    <!-- Trade Efficiency -->
     <div class="card p-4">
       <div class="flex items-center justify-between mb-3">
         <p class="font-display font-600 text-dune-bright tracking-wide text-sm">Trade Efficiency (30d)</p>
@@ -120,38 +112,7 @@
       </div>
     </div>
 
-    <!-- 30-day profit trend chart -->
-    <div class="card p-4">
-      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Daily Net Profit Trend</p>
-      <div id="profitChart"></div>
-    </div>
-  </div>
-
-  <!-- Right: Orders -->
-  <div class="flex flex-col gap-4">
-
-    <!-- Cancelled / Expired orders -->
-    <div class="card p-4">
-      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Cancelled / Expired Orders</p>
-      <div class="overflow-x-auto">
-        <table class="w-full text-xs font-mono">
-          <thead>
-            <tr class="text-dune-muted border-b border-dune-border">
-              <th class="text-left py-1.5 pr-3 font-400">Item</th>
-              <th class="text-right py-1.5 px-2 font-400">Qty</th>
-              <th class="text-right py-1.5 px-2 font-400">Price</th>
-              <th class="text-right py-1.5 px-2 font-400">Capital</th>
-              <th class="text-right py-1.5 pl-2 font-400">State</th>
-            </tr>
-          </thead>
-          <tbody id="cancelledBody">
-            <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Active orders -->
+    <!-- Active Orders -->
     <div class="card p-4">
       <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Active Orders</p>
       <div class="overflow-x-auto">
@@ -173,83 +134,123 @@
     </div>
 
   </div>
-</div>
 
-<!-- Tracked item charts -->
-<div id="trackedSection" class="hidden card p-4 mb-6">
-  <p class="label mb-3">Price History — Tracked Items</p>
-  <div id="trackedCharts" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
-</div>
-
-<!-- Inventory -->
-<div class="card p-4 mb-6">
-  <div class="flex flex-wrap items-center gap-3 mb-3">
-    <p class="font-display font-600 text-dune-bright tracking-wide text-sm mr-1">Inventory</p>
-
-    <!-- Group-by toggle -->
-    <div class="flex rounded-sm border border-dune-border overflow-hidden text-xs font-display font-600 tracking-wider">
-      <button id="grp-location" onclick="setGroupBy('location')"
-        class="px-3 py-1 sand" style="background:rgba(200,169,110,0.08)">By Location</button>
-      <button id="grp-item" onclick="setGroupBy('item')"
-        class="px-3 py-1 text-dune-muted hover:text-dune-text transition-colors">By Item</button>
+  <!-- Escrow breakdown (compact) -->
+  <div class="card p-3 mb-6" id="escrowPanel">
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-1">
+      <p class="label text-xs">Escrow Breakdown</p>
+      <span class="text-xs font-mono text-dune-muted">Buy Orders: <span id="escrowBuyOrders" class="text-dune-text">—</span></span>
+      <span class="text-xs font-mono text-dune-muted">Collateral: <span id="escrowCollateral" class="text-dune-text">—</span></span>
+      <span class="text-xs font-mono text-dune-muted">Rewards: <span id="escrowRewards" class="text-dune-text">—</span></span>
+      <span class="text-xs font-mono text-dune-muted">Bids: <span id="escrowAuction" class="text-dune-text">—</span></span>
     </div>
+  </div>
 
-    <!-- Filter -->
-    <input id="invFilter" type="text" placeholder="Filter items…"
-      oninput="applyInventoryView()"
-      class="bg-transparent border border-dune-border rounded-sm px-2 py-1 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand"
-      style="width:160px" />
-
-    <!-- Sort -->
-    <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
-      <span>Sort:</span>
-      <button id="isort-name"  onclick="setInvSort('name')"  class="hover:sand transition-colors">Name</button>
-      <span class="text-dune-border">|</span>
-      <button id="isort-value" onclick="setInvSort('value')" class="sand">Value</button>
-      <span class="text-dune-border">|</span>
-      <button id="isort-qty"   onclick="setInvSort('qty')"   class="hover:sand transition-colors">Qty</button>
-      <button id="isort-dir" onclick="toggleSortDir()"
-        class="ml-1 px-1.5 py-0.5 border border-dune-border rounded-sm hover:border-dune-sand transition-colors">↓</button>
+  <!-- Cancelled / Expired Orders -->
+  <div class="card p-4">
+    <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Cancelled / Expired Orders</p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs font-mono">
+        <thead>
+          <tr class="text-dune-muted border-b border-dune-border">
+            <th class="text-left py-1.5 pr-3 font-400">Item</th>
+            <th class="text-right py-1.5 px-2 font-400">Qty</th>
+            <th class="text-right py-1.5 px-2 font-400">Price</th>
+            <th class="text-right py-1.5 px-2 font-400">Capital</th>
+            <th class="text-right py-1.5 pl-2 font-400">State</th>
+          </tr>
+        </thead>
+        <tbody id="cancelledBody">
+          <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+        </tbody>
+      </table>
     </div>
+  </div>
 
-    <!-- Value range -->
-    <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
-      <span>Value:</span>
-      <input id="fval-min" type="number" placeholder="min" oninput="applyInventoryView()"
-        class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
-      <span>–</span>
-      <input id="fval-max" type="number" placeholder="max" oninput="applyInventoryView()"
-        class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
-    </div>
+</div><!-- /overview -->
 
-    <!-- Qty range -->
-    <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
-      <span>Qty:</span>
-      <input id="fqty-min" type="number" placeholder="min" oninput="applyInventoryView()"
-        class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
-      <span>–</span>
-      <input id="fqty-max" type="number" placeholder="max" oninput="applyInventoryView()"
-        class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
-    </div>
+<!-- ── MARKETS TAB ──────────────────────────────────────────────────────────── -->
+<div id="tab-content-markets" class="hidden">
 
-    <div class="flex-1"></div>
-    <!-- Tracked-only filter -->
-    <button id="invTrackedBtn" onclick="toggleTrackedOnly()"
-      class="btn-ghost text-xs px-2 py-1 rounded-sm border border-dune-border text-dune-muted hover:border-dune-sand transition-colors">
-      Tracked Only
-    </button>
-    <!-- Clear all tracked -->
+  <div class="flex items-center justify-between mb-4">
+    <p class="label">Price History — Tracked Items</p>
     <button onclick="clearAllTracked()"
-      class="btn-ghost text-xs px-2 py-1 rounded-sm border border-dune-border text-dune-muted hover:border-spice hover:border-opacity-60 transition-colors">
-      Clear Tracked
+      class="btn-ghost text-xs px-2 py-1 rounded-sm border border-dune-border text-dune-muted hover:border-spice transition-colors">
+      Clear All
     </button>
-    <button onclick="loadInventory()" id="invRefreshBtn" class="btn-ghost text-xs px-2 py-1 rounded-sm">Refresh</button>
   </div>
 
-  <div id="inventoryBody">
-    <p class="text-xs font-mono text-dune-muted py-4 text-center">Click Refresh to load inventory from ESI</p>
+  <div id="trackedSection" class="hidden">
+    <div id="trackedCharts" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
   </div>
-</div>
+  <p id="trackedEmpty" class="text-center text-dune-muted py-16 text-sm font-mono">
+    No items tracked — use the Inventory tab to track items and see price history here.
+  </p>
+
+</div><!-- /markets -->
+
+<!-- ── INVENTORY TAB ────────────────────────────────────────────────────────── -->
+<div id="tab-content-inventory" class="hidden">
+
+  <div class="card p-4">
+    <div class="flex flex-wrap items-center gap-3 mb-3">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mr-1">Inventory</p>
+
+      <div class="flex rounded-sm border border-dune-border overflow-hidden text-xs font-display font-600 tracking-wider">
+        <button id="grp-location" onclick="setGroupBy('location')"
+          class="px-3 py-1 sand" style="background:rgba(200,169,110,0.08)">By Location</button>
+        <button id="grp-item" onclick="setGroupBy('item')"
+          class="px-3 py-1 text-dune-muted hover:text-dune-text transition-colors">By Item</button>
+      </div>
+
+      <input id="invFilter" type="text" placeholder="Filter items…"
+        oninput="applyInventoryView()"
+        class="bg-transparent border border-dune-border rounded-sm px-2 py-1 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand"
+        style="width:160px" />
+
+      <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
+        <span>Sort:</span>
+        <button id="isort-name"  onclick="setInvSort('name')"  class="hover:sand transition-colors">Name</button>
+        <span class="text-dune-border">|</span>
+        <button id="isort-value" onclick="setInvSort('value')" class="sand">Value</button>
+        <span class="text-dune-border">|</span>
+        <button id="isort-qty"   onclick="setInvSort('qty')"   class="hover:sand transition-colors">Qty</button>
+        <button id="isort-dir" onclick="toggleSortDir()"
+          class="ml-1 px-1.5 py-0.5 border border-dune-border rounded-sm hover:border-dune-sand transition-colors">↓</button>
+      </div>
+
+      <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
+        <span>Value:</span>
+        <input id="fval-min" type="number" placeholder="min" oninput="applyInventoryView()"
+          class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+        <span>–</span>
+        <input id="fval-max" type="number" placeholder="max" oninput="applyInventoryView()"
+          class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+      </div>
+
+      <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
+        <span>Qty:</span>
+        <input id="fqty-min" type="number" placeholder="min" oninput="applyInventoryView()"
+          class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+        <span>–</span>
+        <input id="fqty-max" type="number" placeholder="max" oninput="applyInventoryView()"
+          class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+      </div>
+
+      <div class="flex-1"></div>
+      <button id="invTrackedBtn" onclick="toggleTrackedOnly()"
+        class="btn-ghost text-xs px-2 py-1 rounded-sm border border-dune-border text-dune-muted hover:border-dune-sand transition-colors">
+        Tracked Only
+      </button>
+      <button onclick="loadInventory()" id="invRefreshBtn" class="btn-ghost text-xs px-2 py-1 rounded-sm">Refresh</button>
+    </div>
+
+    <div id="inventoryBody">
+      <p class="text-xs font-mono text-dune-muted py-4 text-center">Click Refresh to load inventory from ESI</p>
+    </div>
+  </div>
+
+</div><!-- /inventory -->
 
 {% endblock %}
 
@@ -394,6 +395,7 @@ async function clearAllTracked() {
     }
   }
   document.getElementById('trackedSection').classList.add('hidden');
+  document.getElementById('trackedEmpty').classList.remove('hidden');
   if (_invFlat.length) applyInventoryView();
 }
 
@@ -563,6 +565,20 @@ async function loadInventory() {
   }
 }
 
+function setTab(name) {
+  ['overview', 'markets', 'inventory'].forEach(t => {
+    document.getElementById(`tab-content-${t}`).classList.toggle('hidden', t !== name);
+    const btn = document.getElementById(`tab-${t}`);
+    const active = t === name;
+    btn.className = `px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 -mb-px transition-colors ${
+      active ? 'border-dune-sand sand' : 'border-transparent text-dune-muted hover:text-dune-text'
+    }`;
+  });
+  if (name === 'markets') {
+    setTimeout(() => Object.values(_historyCharts).forEach(c => c.updateOptions({})), 50);
+  }
+}
+
 function buildProfitChart(pnl) {
   if (_profitChart) { _profitChart.destroy(); _profitChart = null; }
   const el = document.getElementById('profitChart');
@@ -710,7 +726,7 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
     yaxis: { labels: { formatter: v => v != null ? fmtIsk(v) : '',
       style: { fontSize: '9px', colors: '#6b7280' } } },
     stroke: { width: [1.5, 1, 1.5], curve: 'smooth', dashArray: [0, 4, 6] },
-    fill: { type: ['gradient', 'solid', 'gradient'],
+    fill: { type: ['gradient', 'solid', 'solid'],
       gradient: { opacityFrom: 0.2, opacityTo: 0.02 } },
     dataLabels: { enabled: false },
     grid: { borderColor: 'rgba(42,45,53,0.4)', strokeDashArray: 2 },
@@ -722,6 +738,7 @@ function renderTrackedChart(typeId, typeName, history, currentPrice) {
   chart.render();
 
   document.getElementById('trackedSection').classList.remove('hidden');
+  document.getElementById('trackedEmpty').classList.add('hidden');
 }
 
 async function toggleTrack(typeId, typeName, currentPrice) {
@@ -763,6 +780,7 @@ async function untrackItem(typeId) {
   }
   if (!document.getElementById('trackedCharts').children.length) {
     document.getElementById('trackedSection').classList.add('hidden');
+    document.getElementById('trackedEmpty').classList.remove('hidden');
   }
 }
 
@@ -793,7 +811,6 @@ async function loadData() {
     sortPnl(_pnlSort);
     renderCancelled(data.cancelled_orders || []);
     renderActiveOrders(data.active_orders || []);
-    buildProfitChart(_pnlData);
 
     // Load history for already-tracked items
     for (const item of (data.tracked_items || [])) {
