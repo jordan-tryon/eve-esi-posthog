@@ -456,6 +456,16 @@
 
 <!-- ══ FITTING TAB ══ -->
 <div id="panel-fitting" style="display:none">
+  <div class="flex justify-end mb-3">
+    <button id="fittingRefreshBtn" onclick="loadFitting(true)"
+      class="flex items-center gap-1.5 px-3 py-1 text-xs font-display font-600 tracking-wider border border-dune-border rounded-sm hover:border-dune-sand hover:text-dune-bright transition-colors text-dune-muted">
+      <svg id="fittingRefreshIcon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"></polyline>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+      </svg>
+      Refresh
+    </button>
+  </div>
   <div id="fittingTabContent" class="text-dune-muted text-sm">Loading fitting data…</div>
   <div id="optimalPanel" class="mt-4"></div>
 </div>
@@ -732,7 +742,7 @@ function setTimelineHours(h) {
 function rollingIskHr(buckets, windowSize) {
   return buckets.map((b, i) => {
     const slice = buckets.slice(Math.max(0, i - windowSize + 1), i + 1);
-    const totalEarned  = slice.reduce((sum, x) => sum + (x.isk_earned || 0), 0);
+    const totalEarned  = slice.reduce((sum, x) => sum + (x.isk_earned || 0) + (x.loot_value || 0), 0);
     const totalMinutes = slice.length * 20;
     return totalMinutes > 0 ? Math.round((totalEarned / totalMinutes) * 60) : 0;
   });
@@ -847,13 +857,15 @@ function renderTimeline(data) {
   const el = document.getElementById('iskTimelineChart');
 
   if (tlView === '20min') {
-    const buckets = data.buckets || [];
-    const earned  = buckets.map(b => b.isk_earned || 0);
-    const avgLine = rollingIskHr(buckets, 3); // 3 × 20 min = 60-min rolling window
+    const buckets   = data.buckets || [];
+    const earned    = buckets.map(b => b.isk_earned || 0);
+    const lootVals  = buckets.map(b => b.loot_value  || 0);
+    const avgLine   = rollingIskHr(buckets, 3); // 3 × 20 min = 60-min rolling window
+    const LOOT_CLR  = '#8a6eab';
 
     iskTimelineInst = new ApexCharts(el, {
       chart: {
-        ..._apexBase, type: 'bar', height: 200,
+        ..._apexBase, type: 'bar', height: 200, stacked: true,
         events: {
           mounted: (ctx) => requestAnimationFrame(() => _renderEventRow(ctx, data.events, buckets)),
           updated: (ctx) => requestAnimationFrame(() => _renderEventRow(ctx, data.events, buckets)),
@@ -861,6 +873,7 @@ function renderTimeline(data) {
       },
       series: [
         { name: 'ISK Earned',              type: 'column', data: earned },
+        { name: 'Loot / Assets',           type: 'column', data: lootVals },
         { name: 'ISK/hr (60 minute avg)', type: 'line',   data: avgLine },
       ],
       xaxis: {
@@ -871,27 +884,30 @@ function renderTimeline(data) {
       },
       yaxis: [
         { labels: { formatter: v => fmt(v),        style: { colors: MUTED, fontSize: '10px' } } },
-        { opposite: true, labels: { formatter: v => fmt(v)+'/hr', style: { colors: SAND,  fontSize: '10px' } }, show: false },
+        { show: false, labels: { formatter: v => fmt(v), style: { colors: MUTED, fontSize: '10px' } } },
+        { opposite: true, labels: { formatter: v => fmt(v)+'/hr', style: { colors: SAND, fontSize: '10px' } }, show: false },
       ],
-      colors: ['rgba(200,169,110,0.55)', SAND],
-      stroke: { width: [0, 2], curve: 'smooth', colors: [SAND, SAND] },
-      fill:   { opacity: [0.85, 1] },
+      colors: ['rgba(200,169,110,0.55)', 'rgba(138,110,171,0.55)', SAND],
+      stroke: { width: [0, 0, 2], curve: 'smooth', colors: [SAND, LOOT_CLR, SAND] },
+      fill:   { opacity: [0.85, 0.75, 1] },
       plotOptions: { bar: { columnWidth: '60%', borderRadius: 2 } },
       grid: { borderColor: BORDER, strokeDashArray: 3 },
       legend: {
-        show: true, position: 'top', labels: { colors: [MUTED, SAND] },
+        show: true, position: 'top', labels: { colors: [MUTED, LOOT_CLR, SAND] },
         markers: { width: 10, height: 10, radius: 2 }, fontSize: '10px',
       },
       tooltip: {
         shared: true, intersect: false, theme: 'dark',
         custom: function({ series, dataPointIndex }) {
-          const b   = buckets[dataPointIndex] || {};
-          const evs = (data.events || []).filter(e => e.bucket_index === dataPointIndex).map(e => e.label);
-          const hdr = evs.length ? `${b.label || ''} · ${evs.join(' | ')}` : (b.label || '');
+          const b    = buckets[dataPointIndex] || {};
+          const evs  = (data.events || []).filter(e => e.bucket_index === dataPointIndex).map(e => e.label);
+          const hdr  = evs.length ? `${b.label || ''} · ${evs.join(' | ')}` : (b.label || '');
+          const loot = series[1][dataPointIndex] || 0;
           return `<div style="padding:8px 10px;font-family:Share Tech Mono,monospace;font-size:11px;background:#1c1f24;border:1px solid ${BORDER}">
             <div style="color:${MUTED};margin-bottom:4px">${hdr}</div>
             <div style="color:${SAND}">Earned: ${fmt(series[0][dataPointIndex] || 0)}</div>
-            <div style="color:${SAND}">60 minute rolling ISK/hr: ${fmt(series[1][dataPointIndex] || 0)}</div>
+            ${loot > 0 ? `<div style="color:${LOOT_CLR}">Loot: ${fmt(loot)}</div>` : ''}
+            <div style="color:${SAND}">60 min rolling ISK/hr: ${fmt(series[2][dataPointIndex] || 0)}</div>
           </div>`;
         },
       },
@@ -989,9 +1005,12 @@ const GROUPS = [
 ];
 
 let _fittingLoaded = false;
-async function loadFitting() {
-  if (_fittingLoaded) return;
+async function loadFitting(force) {
+  if (_fittingLoaded && !force) return;
   const panel = document.getElementById('fittingTabContent');
+  const btn   = document.getElementById('fittingRefreshBtn');
+  const icon  = document.getElementById('fittingRefreshIcon');
+  if (btn) { btn.disabled = true; icon.style.animation = 'spin 0.8s linear infinite'; }
   try {
     const data = await (await fetch(`/api/c/${CID}/fitting`)).json();
     if (data.error) { panel.textContent = data.error; return; }
@@ -1050,6 +1069,9 @@ async function loadFitting() {
 
     panel.innerHTML = html;
   } catch(e) { panel.textContent = 'Failed to load fitting: ' + e; }
+  finally {
+    if (btn) { btn.disabled = false; icon.style.animation = ''; }
+  }
 }
 
 function toggleSlot(id) {
