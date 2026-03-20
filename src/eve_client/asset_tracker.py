@@ -118,6 +118,15 @@ def run_asset_tracking(character_id: int, auth: EveAuth, store: SnapshotStore):
         if prev is None:
             return  # No previous snapshot to diff against
 
+        # Guard: if the new snapshot has dramatically fewer item types than the
+        # previous one, the previous snapshot likely used a different filter
+        # (e.g. the station-container-leak bug).  Skip the delta this tick so
+        # we don't record fake mass-losses; the new snapshot becomes the baseline.
+        if prev and len(current) < len(prev) * 0.60:
+            print(f"[asset_tracker] Snapshot type-count dropped {len(prev)} → {len(current)} "
+                  f"(>40% reduction) — skipping delta to avoid false losses")
+            return
+
         # Compute delta
         all_types = set(prev) | set(current)
         gained: dict[int, int] = {}
