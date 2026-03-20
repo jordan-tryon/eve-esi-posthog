@@ -350,8 +350,7 @@
       </tr></thead>
       <tbody>
         {% for s in sessions %}
-        {% set net_assets = (s.assets_gained_value or 0) - (s.assets_lost_value or 0) %}
-        {% set total_value = (s.isk_earned or 0) + net_assets %}
+        {% set total_value = s.isk_earned or 0 %}
         <tr class="row border-b border-dune-border border-opacity-30">
           <td class="py-1.5 pr-4 text-xs font-display">
             {% if s.session_type == 'Mining' %}<span class="text-blue-400">Mining</span>
@@ -1405,36 +1404,37 @@ loadTimeline();
 async function loadClone() {
   try {
     const res = await fetch(`/api/c/{{ cid }}/clone`);
+    if (!res.ok) { console.warn('[clone] HTTP', res.status, res.url); return; }
     const d = await res.json();
 
-    const fmt = v => v >= 1e9 ? (v/1e9).toFixed(2)+'B'
-                   : v >= 1e6 ? (v/1e6).toFixed(1)+'M'
-                   : v >= 1e3 ? (v/1e3).toFixed(0)+'K'
-                   : v.toFixed(0);
-
-    // Clone card
-    if (d.implant_value > 0) {
-      document.getElementById('cloneValue').textContent = fmt(d.implant_value);
-      document.getElementById('cloneSub').textContent =
-        `${d.implant_count} implant${d.implant_count !== 1 ? 's' : ''}`;
+    // Clone card — show count even if price data unavailable
+    const cloneVal = document.getElementById('cloneValue');
+    const cloneSub = document.getElementById('cloneSub');
+    if (d.implant_count > 0) {
+      cloneVal.textContent = d.implant_value > 0 ? fmt(d.implant_value) : `${d.implant_count} implants`;
+      cloneSub.textContent = d.implant_value > 0
+        ? `${d.implant_count} implant${d.implant_count !== 1 ? 's' : ''}`
+        : 'value unavailable';
     } else {
-      document.getElementById('cloneValue').textContent = '—';
-      document.getElementById('cloneSub').textContent = 'no implants';
+      cloneVal.textContent = '—';
+      cloneSub.textContent = 'no implants';
     }
 
     // Training card
+    const trainSkill = document.getElementById('trainingSkill');
+    const trainSub   = document.getElementById('trainingSub');
     if (d.training) {
       const t = d.training;
-      document.getElementById('trainingSkill').textContent = t.skill_name;
-      const label = t.hours_remaining >= 24
+      trainSkill.textContent = t.skill_name;
+      trainSub.textContent = t.hours_remaining >= 24
         ? `Lv ${t.trained_level} — ${(t.hours_remaining/24).toFixed(1)}d`
         : `Lv ${t.trained_level} — ${t.hours_remaining.toFixed(1)}h`;
-      document.getElementById('trainingSub').textContent = label;
     } else {
-      document.getElementById('trainingSkill').textContent = '—';
-      document.getElementById('trainingSub').textContent = 'not training';
+      trainSkill.textContent = '—';
+      trainSub.textContent = 'not training';
     }
   } catch(e) {
+    console.error('[clone] fetch failed:', e);
     document.getElementById('cloneValue').textContent = '—';
     document.getElementById('trainingSkill').textContent = '—';
     document.getElementById('cloneSub').textContent = '';

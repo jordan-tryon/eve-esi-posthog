@@ -1018,8 +1018,10 @@ def api_clone(character_id: int):
     finally:
         esi.close()
 
-    price_map     = {p["type_id"]: p.get("adjusted_price", 0.0) for p in prices_raw}
+    price_map     = {p["type_id"]: p.get("average_price") or p.get("adjusted_price", 0.0) for p in prices_raw}
     implant_value = round(sum(price_map.get(tid, 0.0) for tid in implants), 2)
+    if implants and not prices_raw:
+        print(f"[clone] WARNING: market prices unavailable, implant_value will be 0")
 
     # Find the currently-training skill (earliest finish_date in the future)
     training = None
