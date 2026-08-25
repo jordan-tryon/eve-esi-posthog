@@ -795,6 +795,59 @@ def api_optimal(character_id: int):
     }
 
 
+@app.get("/api/c/{character_id}/skillqueue")
+def api_skillqueue(character_id: int):
+    """Live training queue — fetched fresh each call, not persisted."""
+    token = auth.get_valid_token(character_id)
+    esi   = ESIClient(access_token=token)
+    try:
+        raw_queue = _safe_esi(lambda: esi.get_skillqueue(character_id), default=[])
+    finally:
+        esi.close()
+
+    now = datetime.now(timezone.utc)
+    queue = []
+    for entry in sorted(raw_queue or [], key=lambda e: e.get("queue_position", 99)):
+        finish_date = entry.get("finish_date")
+        if not finish_date:
+            continue
+        try:
+            finish_dt = datetime.fromisoformat(finish_date.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if finish_dt <= now:
+            continue
+
+        row = store.conn.execute(
+            "SELECT skill_name FROM skills WHERE character_id=? AND skill_id=? AND skill_name IS NOT NULL",
+            (character_id, entry["skill_id"]),
+        ).fetchone()
+        skill_name = row[0] if row else f"Skill {entry['skill_id']}"
+
+        hours_remaining = (finish_dt - now).total_seconds() / 3600
+        finishes = f"{hours_remaining/24:.1f}d" if hours_remaining >= 24 else f"{hours_remaining:.1f}h"
+
+        sp_per_hour = None
+        try:
+            start_dt = datetime.fromisoformat(entry["start_date"].replace("Z", "+00:00"))
+            total_hours = (finish_dt - start_dt).total_seconds() / 3600
+            sp_delta = entry.get("level_end_sp", 0) - entry.get("training_start_sp", entry.get("level_start_sp", 0))
+            if total_hours > 0:
+                sp_per_hour = round(sp_delta / total_hours)
+        except Exception:
+            pass
+
+        queue.append({
+            "skill_id":    entry["skill_id"],
+            "skill_name":  skill_name,
+            "to_level":    entry.get("finished_level", "—"),
+            "finishes":    finishes,
+            "sp_per_hour": sp_per_hour,
+        })
+
+    return {"queue": queue}
+
+
 @app.get("/api/c/{character_id}/ships")
 def api_ships(character_id: int):
     token = auth.get_valid_token(character_id)

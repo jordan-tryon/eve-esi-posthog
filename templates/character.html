@@ -136,17 +136,17 @@
     class="tab-btn px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
     Fitting
   </button>
-  <button id="tab-ships" onclick="switchTab('ships')"
+  <button id="tab-history" onclick="switchTab('history')"
     class="tab-btn px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
-    Ships
+    History
   </button>
 </div>
 
 <!-- ══ OVERVIEW TAB ══ -->
 <div id="panel-overview">
 
-<!-- ── Live Status + Finances — single row ── -->
-<div class="flex items-stretch gap-0 mb-4">
+<!-- ── Live Status + Finances — single row (hidden: not in design, data lives in sidebar/History) ── -->
+<div class="flex items-stretch gap-0 mb-4" style="display:none">
 
 <!-- LEFT: Live Status (75%) -->
 <div style="flex: 0 1 75%; min-width: 0">
@@ -341,7 +341,7 @@
 </div><!-- /row -->
 
 <!-- ── Charts — wallet + ISK/hr stacked left, activity doughnut right ── -->
-<div class="card p-3 mb-3 flex items-center gap-2 flex-wrap">
+<div class="card p-3 mb-3 flex items-center gap-2 flex-wrap" style="display:none">
   <span class="label mr-1">Range</span>
   <button data-range="day"   onclick="setRange('day')"   class="chart-range-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Day</button>
   <button data-range="week"  onclick="setRange('week')"  class="chart-range-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Week</button>
@@ -356,8 +356,8 @@
     </div>
     <div class="card p-4">
       <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-        <p id="iskTimelineLabel" class="label">ISK Earned (bars) · 60-Min Rolling ISK/hr (line)</p>
-        <div class="flex gap-1">
+        <p id="iskTimelineLabel" class="label">ISK / Hour · rolling</p>
+        <div class="flex gap-1" style="display:none">
           <button id="tl-btn-20min" onclick="switchTimelineView('20min')"
             class="tl-btn font-mono text-xs px-2.5 py-1 rounded-sm border transition-colors"
             style="border-color:#c8a96e;color:#c8a96e">20 Min</button>
@@ -365,13 +365,13 @@
             class="tl-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Sessions</button>
         </div>
       </div>
-      <div id="tl-range-bar" class="flex items-center gap-1 mb-2">
+      <div id="tl-range-bar" class="flex items-center gap-1 mb-2" style="display:none">
         <span class="label text-xs mr-1">Window</span>
         <button data-tlhours="6"  onclick="setTimelineHours(6)"  class="tl-hr-btn font-mono text-xs px-2 py-0.5 rounded-sm border border-dune-border text-dune-muted transition-colors">6h</button>
         <button data-tlhours="24" onclick="setTimelineHours(24)" class="tl-hr-btn font-mono text-xs px-2 py-0.5 rounded-sm border transition-colors" style="border-color:#c8a96e;color:#c8a96e">24h</button>
         <button data-tlhours="72" onclick="setTimelineHours(72)" class="tl-hr-btn font-mono text-xs px-2 py-0.5 rounded-sm border border-dune-border text-dune-muted transition-colors">3d</button>
       </div>
-      <div id="tl-legend" class="flex flex-wrap gap-3 mb-2" style="font-size:0.65rem;font-family:'Share Tech Mono'">
+      <div id="tl-legend" class="flex flex-wrap gap-3 mb-2" style="font-size:0.65rem;font-family:'Share Tech Mono';display:none">
         <span><span style="color:#5a9e6f">▶</span> Login</span>
         <span><span style="color:#c05050">◼</span> Logout</span>
         <span><span style="color:#c8a96e">◆</span> Jump</span>
@@ -381,7 +381,7 @@
       </div>
       <div style="position:relative">
         <div id="iskTimelineChart"></div>
-        <div id="timelineEvents" style="position:relative;min-height:44px;overflow:visible"></div>
+        <div id="timelineEvents" style="position:relative;min-height:44px;overflow:visible;display:none"></div>
       </div>
     </div>
   </div>
@@ -393,6 +393,32 @@
     </div>
   </div>
 </div>
+
+</div><!-- /panel-overview -->
+
+<!-- ══ FITTING TAB ══ -->
+<div id="panel-fitting" style="display:none">
+  <div class="flex justify-end mb-3">
+    <button id="fittingRefreshBtn" onclick="loadFitting(true)"
+      class="flex items-center gap-1.5 px-3 py-1 text-xs font-display font-600 tracking-wider border border-dune-border rounded-sm hover:border-dune-sand hover:text-dune-bright transition-colors text-dune-muted">
+      <svg id="fittingRefreshIcon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"></polyline>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+      </svg>
+      Refresh
+    </button>
+  </div>
+  <div id="fittingTabContent" class="text-dune-muted text-sm">Loading fitting data…</div>
+  <div id="optimalPanel" class="mt-4"></div>
+
+  <div class="mt-8 pt-6 border-t border-dune-border">
+    <p class="label mb-3">Fleet Readiness — All Owned Ships</p>
+    <div id="shipsContent" class="text-dune-muted text-sm">Loading ships…</div>
+  </div>
+</div>
+
+<!-- ══ HISTORY TAB ══ -->
+<div id="panel-history" style="display:none">
 
 <!-- ── Recent Activity — Sessions / Losses tabbed ── -->
 <div class="card p-4 mb-6">
@@ -532,33 +558,25 @@
   </div>
 </div>
 
-</div><!-- /panel-overview -->
-
-<!-- ══ FITTING TAB ══ -->
-<div id="panel-fitting" style="display:none">
-  <div class="flex justify-end mb-3">
-    <button id="fittingRefreshBtn" onclick="loadFitting(true)"
-      class="flex items-center gap-1.5 px-3 py-1 text-xs font-display font-600 tracking-wider border border-dune-border rounded-sm hover:border-dune-sand hover:text-dune-bright transition-colors text-dune-muted">
-      <svg id="fittingRefreshIcon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="23 4 23 10 17 10"></polyline>
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-      </svg>
-      Refresh
-    </button>
-  </div>
-  <div id="fittingTabContent" class="text-dune-muted text-sm">Loading fitting data…</div>
-  <div id="optimalPanel" class="mt-4"></div>
-</div>
-
-<!-- ══ SHIPS TAB ══ -->
-<div id="panel-ships" style="display:none">
-  <div id="shipsContent" class="text-dune-muted text-sm">Loading ships…</div>
-</div>
+</div><!-- /panel-history -->
 
 </div><!-- /panel-main-character -->
 
 <!-- ══ SKILLS TAB (top-level) ══ -->
 <div id="panel-main-skills" style="display:none">
+
+<div class="flex border-b border-dune-border mb-4">
+  <button onclick="setSkillsTab('trained')" id="skillstab-trained"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-dune-sand sand -mb-px transition-colors">
+    Trained
+  </button>
+  <button onclick="setSkillsTab('queue')" id="skillstab-queue"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+    Queue
+  </button>
+</div>
+
+<div id="skillstab-content-trained">
   {% if skills %}
 
   {% set skill_groups = [] %}
@@ -629,6 +647,26 @@
     No skill data. Trigger a sync to populate.
   </div>
   {% endif %}
+</div><!-- /skillstab-content-trained -->
+
+<div id="skillstab-content-queue" class="hidden">
+  <div class="card overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left border-b border-dune-border" style="background:#16181c">
+          <th class="px-4 py-3 label">Skill</th>
+          <th class="px-4 py-3 label text-center">To</th>
+          <th class="px-4 py-3 label text-right">Finishes</th>
+          <th class="px-4 py-3 label text-right">SP/hr</th>
+        </tr>
+      </thead>
+      <tbody id="skillQueueBody">
+        <tr><td colspan="4" class="text-center text-dune-muted py-6 text-sm">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div><!-- /skillstab-content-queue -->
+
 </div><!-- /panel-main-skills -->
 
 <!-- ══ TRADING TAB (top-level) ══ -->
@@ -647,9 +685,13 @@
   <div id="tradingErrorBanner" class="hidden mb-4 px-4 py-2 rounded-sm border border-red-900 text-red-400 text-sm font-mono" style="background:rgba(120,40,40,0.15)"></div>
 
   <div class="flex border-b border-dune-border mb-6">
-    <button onclick="setTradingTab('overview')" id="tradingtab-overview"
+    <button onclick="setTradingTab('orders')" id="tradingtab-orders"
       class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-dune-sand sand -mb-px transition-colors">
-      Overview
+      Orders
+    </button>
+    <button onclick="setTradingTab('pnl')" id="tradingtab-pnl"
+      class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+      P&amp;L
     </button>
     <button onclick="setTradingTab('markets')" id="tradingtab-markets"
       class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
@@ -661,22 +703,10 @@
     </button>
   </div>
 
-  <!-- ── TRADING: OVERVIEW ── -->
-  <div id="tradingtab-content-overview">
+  <!-- ── TRADING: ORDERS ── -->
+  <div id="tradingtab-content-orders">
 
-    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
-      <div class="card p-3">
-        <p class="label mb-1">Net P&amp;L (30d)</p>
-        <p class="font-mono font-600 text-sm sand" id="sumNetPnl">—</p>
-      </div>
-      <div class="card p-3">
-        <p class="label mb-1">Avg Margin</p>
-        <p class="font-mono font-600 text-sm text-dune-text" id="sumAvgMargin">—</p>
-      </div>
-      <div class="card p-3">
-        <p class="label mb-1">Fees Paid</p>
-        <p class="font-mono font-600 text-sm text-dune-muted" id="sumFees">—</p>
-      </div>
+    <div class="grid grid-cols-2 gap-3 mb-6" style="max-width:420px">
       <div class="card p-3">
         <p class="label mb-1">ISK in Escrow</p>
         <p class="font-mono font-600 text-sm" style="color:#c8a96e" id="escrowTotal">—</p>
@@ -687,54 +717,23 @@
       </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-      <div class="card p-4">
-        <div class="flex items-center justify-between mb-3">
-          <p class="font-display font-600 text-dune-bright tracking-wide text-sm">Trade Efficiency (30d)</p>
-          <div class="flex gap-2 text-xs font-mono text-dune-muted">
-            <span>Sort:</span>
-            <button onclick="sortPnl('net_profit')" class="hover:sand transition-colors" id="sort-net_profit">Profit</button>
-            <button onclick="sortPnl('margin_pct')" class="hover:sand transition-colors" id="sort-margin_pct">Margin</button>
-            <button onclick="sortPnl('qty_sold')" class="hover:sand transition-colors" id="sort-qty_sold">Volume</button>
-          </div>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-xs font-mono">
-            <thead>
-              <tr class="text-dune-muted border-b border-dune-border">
-                <th class="text-left py-1.5 pr-3 font-400">Item</th>
-                <th class="text-right py-1.5 px-2 font-400">Buy Avg</th>
-                <th class="text-right py-1.5 px-2 font-400">Sell Avg</th>
-                <th class="text-right py-1.5 px-2 font-400">Qty</th>
-                <th class="text-right py-1.5 px-2 font-400">Margin</th>
-                <th class="text-right py-1.5 pl-2 font-400">Net P&amp;L</th>
-              </tr>
-            </thead>
-            <tbody id="pnlBody">
-              <tr><td colspan="6" class="text-center text-dune-muted py-6">Loading…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card p-4">
-        <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Active Orders</p>
-        <div class="overflow-x-auto">
-          <table class="w-full text-xs font-mono">
-            <thead>
-              <tr class="text-dune-muted border-b border-dune-border">
-                <th class="text-left py-1.5 pr-3 font-400">Item</th>
-                <th class="text-right py-1.5 px-2 font-400">Type</th>
-                <th class="text-right py-1.5 px-2 font-400">Price</th>
-                <th class="text-right py-1.5 px-2 font-400">Remain</th>
-                <th class="text-right py-1.5 pl-2 font-400">% Filled</th>
-              </tr>
-            </thead>
-            <tbody id="activeOrdersBody">
-              <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
-            </tbody>
-          </table>
-        </div>
+    <div class="card p-4 mb-6">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Active Orders</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Item</th>
+              <th class="text-right py-1.5 px-2 font-400">Type</th>
+              <th class="text-right py-1.5 px-2 font-400">Price</th>
+              <th class="text-right py-1.5 px-2 font-400">Remain</th>
+              <th class="text-right py-1.5 pl-2 font-400">% Filled</th>
+            </tr>
+          </thead>
+          <tbody id="activeOrdersBody">
+            <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -768,7 +767,56 @@
       </div>
     </div>
 
-  </div><!-- /trading overview -->
+  </div><!-- /trading orders -->
+
+  <!-- ── TRADING: P&L ── -->
+  <div id="tradingtab-content-pnl" class="hidden">
+
+    <div class="grid grid-cols-3 gap-3 mb-6" style="max-width:520px">
+      <div class="card p-3">
+        <p class="label mb-1">Net P&amp;L (30d)</p>
+        <p class="font-mono font-600 text-sm sand" id="sumNetPnl">—</p>
+      </div>
+      <div class="card p-3">
+        <p class="label mb-1">Avg Margin</p>
+        <p class="font-mono font-600 text-sm text-dune-text" id="sumAvgMargin">—</p>
+      </div>
+      <div class="card p-3">
+        <p class="label mb-1">Fees Paid</p>
+        <p class="font-mono font-600 text-sm text-dune-muted" id="sumFees">—</p>
+      </div>
+    </div>
+
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <p class="font-display font-600 text-dune-bright tracking-wide text-sm">Trade Efficiency (30d)</p>
+        <div class="flex gap-2 text-xs font-mono text-dune-muted">
+          <span>Sort:</span>
+          <button onclick="sortPnl('net_profit')" class="hover:sand transition-colors" id="sort-net_profit">Profit</button>
+          <button onclick="sortPnl('margin_pct')" class="hover:sand transition-colors" id="sort-margin_pct">Margin</button>
+          <button onclick="sortPnl('qty_sold')" class="hover:sand transition-colors" id="sort-qty_sold">Volume</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Item</th>
+              <th class="text-right py-1.5 px-2 font-400">Buy Avg</th>
+              <th class="text-right py-1.5 px-2 font-400">Sell Avg</th>
+              <th class="text-right py-1.5 px-2 font-400">Qty</th>
+              <th class="text-right py-1.5 px-2 font-400">Margin</th>
+              <th class="text-right py-1.5 pl-2 font-400">Net P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody id="pnlBody">
+            <tr><td colspan="6" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /trading pnl -->
 
   <!-- ── TRADING: MARKETS ── -->
   <div id="tradingtab-content-markets" class="hidden">
@@ -1749,7 +1797,7 @@ function filterShips(q) {
 }
 
 function switchTab(name) {
-  ['overview','fitting','ships'].forEach(t => {
+  ['overview','fitting','history'].forEach(t => {
     document.getElementById('panel-' + t).style.display = t === name ? '' : 'none';
   });
   document.querySelectorAll('.tab-btn').forEach(b => {
@@ -1757,8 +1805,48 @@ function switchTab(name) {
     b.style.borderBottomColor = active ? '#c8a96e' : 'transparent';
     b.style.color = active ? '#c8a96e' : '#6b7280';
   });
-  if (name === 'fitting') { loadFitting(); loadOptimal(); }
-  if (name === 'ships')   { loadShips(); }
+  if (name === 'fitting') { loadFitting(); loadOptimal(); loadShips(); }
+}
+
+// ── Skills sub-tabs (Trained / Queue) ───────────────────────────────────────────
+let _skillQueueLoaded = false;
+
+function setSkillsTab(name) {
+  ['trained', 'queue'].forEach(t => {
+    document.getElementById(`skillstab-content-${t}`).classList.toggle('hidden', t !== name);
+    const btn = document.getElementById(`skillstab-${t}`);
+    const active = t === name;
+    btn.className = `px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 -mb-px transition-colors ${
+      active ? 'border-dune-sand sand' : 'border-transparent text-dune-muted hover:text-dune-text'
+    }`;
+  });
+  if (name === 'queue' && !_skillQueueLoaded) {
+    _skillQueueLoaded = true;
+    loadSkillQueue();
+  }
+}
+
+async function loadSkillQueue() {
+  const tbody = document.getElementById('skillQueueBody');
+  try {
+    const resp = await fetch(`/api/c/${CID}/skillqueue`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const queue = data.queue || [];
+    if (!queue.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-dune-muted py-6 text-sm">No skills in training queue</td></tr>';
+      return;
+    }
+    tbody.innerHTML = queue.map(q => `
+      <tr class="row border-b border-dune-border border-opacity-30">
+        <td class="px-4 py-2 font-display text-dune-text">${q.skill_name}</td>
+        <td class="px-4 py-2 text-center font-mono text-xs text-dune-muted">${q.to_level}</td>
+        <td class="px-4 py-2 text-right font-mono text-xs">${q.finishes}</td>
+        <td class="px-4 py-2 text-right font-mono text-xs text-dune-muted">${q.sp_per_hour ? q.sp_per_hour.toLocaleString() : '—'}</td>
+      </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-red-400 py-6 text-sm">Failed to load skill queue</td></tr>';
+  }
 }
 
 // ── Top-level tab switching (Character / Skills / Trading / Industry) ──────────
@@ -2221,7 +2309,7 @@ async function loadInventory() {
 }
 
 function setTradingTab(name) {
-  ['overview', 'markets', 'inventory'].forEach(t => {
+  ['orders', 'pnl', 'markets', 'inventory'].forEach(t => {
     document.getElementById(`tradingtab-content-${t}`).classList.toggle('hidden', t !== name);
     const btn = document.getElementById(`tradingtab-${t}`);
     const active = t === name;
