@@ -10,41 +10,123 @@
 {% set c = current %}
 {% set cid = character.character_id %}
 
-<!-- Header -->
-<div class="flex items-center gap-5 mb-6">
-  <a href="/c/{{ cid }}">
+<!-- ══ COMMAND RAIL SHELL ══ -->
+<div class="grid gap-5" style="grid-template-columns: 260px 1fr">
+
+<!-- ── SIDEBAR: pinned pilot readout ── -->
+<aside class="flex flex-col gap-3" style="min-width:0">
+
+  <div class="flex items-center gap-3">
     <img src="https://images.evetech.net/characters/{{ cid }}/portrait?size=128"
-         class="w-16 h-16 rounded-sm border border-dune-border flex-shrink-0 hover:border-dune-sand transition-colors" style="filter:grayscale(30%)" />
-  </a>
-  <div class="flex-1">
-    <div class="flex items-center gap-3 flex-wrap mb-0.5">
-      <h1 class="font-display font-700 text-2xl text-dune-bright tracking-wider">{{ character.character_name }}</h1>
+         class="w-13 h-13 rounded-sm border border-dune-border flex-shrink-0" style="filter:grayscale(30%);width:52px;height:52px" />
+    <div class="min-w-0">
+      <p class="font-display font-600 text-dune-bright text-base truncate">{{ character.character_name }}</p>
       {% if c.online %}
-        <span class="badge-online text-xs px-2 py-0.5 rounded-sm border font-display font-600 tracking-widest">ONLINE</span>
+        <span class="badge-online text-xs px-1.5 py-0.5 rounded-sm border font-display font-600 tracking-widest">ONLINE</span>
       {% else %}
-        <span class="badge-offline text-xs px-2 py-0.5 rounded-sm border font-display tracking-widest">OFFLINE</span>
+        <span class="badge-offline text-xs px-1.5 py-0.5 rounded-sm border font-display tracking-widest">OFFLINE</span>
       {% endif %}
     </div>
-    <p class="text-dune-muted text-xs font-mono">
-      {% if c.captured_at %}synced {{ c.captured_at[:19].replace('T',' ') }} UTC{% else %}never synced{% endif %}
-    </p>
   </div>
-  <div class="flex gap-2">
-    <a href="/skills/{{ cid }}" class="btn-ghost text-sm px-3 py-1.5 rounded-sm">Skills</a>
-    <button onclick="triggerSync({{ cid }})" id="syncBtn" class="btn-sand text-sm px-4 py-1.5 rounded-sm flex items-center gap-2">
+  <p class="text-dune-muted text-xs font-mono -mt-1">
+    {% if c.captured_at %}synced {{ c.captured_at[:19].replace('T',' ') }} UTC{% else %}never synced{% endif %}
+  </p>
+
+  {% if sync_status.error %}
+  <div class="px-2.5 py-2 rounded-sm border border-red-900 text-red-400 text-xs font-mono" style="background:rgba(120,40,40,0.15)">
+    ⚠ {{ sync_status.error }}
+  </div>
+  {% endif %}
+
+  <!-- Hero metrics -->
+  <div class="card p-2.5" style="border-left:2px solid #c8a96e">
+    <p class="label mb-1">ISK / Hour</p>
+    <p id="statIskHourVal" class="font-mono font-600 text-xl
+      {% if c.isk_hour is not none and c.isk_hour < 0 %}spice{% else %}sand{% endif %}">
+      {% if c.isk_hour is not none %}{{ '{:+,.0f}'.format(c.isk_hour / 1e3) }}K{% else %}—{% endif %}
+    </p>
+    <p id="statIskHourSub" class="text-dune-muted text-xs font-display mt-0.5 truncate">loading…</p>
+  </div>
+  <div class="card p-2.5" style="border-left:2px solid #c8a96e">
+    <p class="label mb-1">Wallet</p>
+    <p class="font-mono font-600 text-dune-bright text-xl">
+      {{ c.wallet_balance | fmt_isk if c.wallet_balance is not none else '—' }}
+    </p>
+    <p class="text-dune-muted text-xs font-mono mt-0.5">ISK</p>
+  </div>
+  <div class="card p-2.5" style="border-left:2px solid #c8a96e">
+    <p class="label mb-1">Recent Losses</p>
+    <p class="font-mono font-600 text-xl {% if c.recent_losses %}spice{% else %}text-dune-bright{% endif %}">{{ c.recent_losses or 0 }}</p>
+    <p class="text-dune-muted text-xs font-mono mt-0.5">last 24h</p>
+  </div>
+
+  <!-- Secondary stats -->
+  <div class="flex flex-col rounded-sm border border-dune-border overflow-hidden" style="background:#2a2d35;gap:1px">
+    <div class="flex items-baseline justify-between px-2.5 py-1.5" style="background:#16181c">
+      <span class="label">Risk</span>
+      <span class="font-mono text-xs risk-{{ c.risk_level or 'LOW' }}">{{ c.risk_level or '—' }}</span>
+    </div>
+    <div class="flex items-baseline justify-between px-2.5 py-1.5" style="background:#16181c">
+      <span class="label">System</span>
+      <span class="font-mono text-xs text-dune-text truncate ml-2">{{ c.system_name or '—' }}</span>
+    </div>
+    <div class="flex items-baseline justify-between px-2.5 py-1.5" style="background:#16181c">
+      <span class="label">Ship</span>
+      <span class="font-mono text-xs text-dune-text truncate ml-2">{{ c.ship_name or '—' }}</span>
+    </div>
+    <div class="flex items-baseline justify-between px-2.5 py-1.5" style="background:#16181c">
+      <span class="label">Total SP</span>
+      <span class="font-mono text-xs text-dune-text">{{ '{:,.0f}'.format(c.total_sp) if c.total_sp else '—' }}</span>
+    </div>
+    <div class="flex items-baseline justify-between px-2.5 py-1.5" style="background:#16181c">
+      <span class="label">Wealth</span>
+      <span class="font-mono text-xs sand">{% if c.estimated_value %}{{ '{:,.2f}'.format(c.estimated_value / 1e9) }}B{% else %}—{% endif %}</span>
+    </div>
+  </div>
+
+  <div class="mt-auto flex flex-col gap-1.5 pt-2">
+    <button onclick="triggerSync({{ cid }})" id="syncBtn" class="btn-sand text-sm px-4 py-2 rounded-sm flex items-center justify-center gap-2">
       <span id="syncSpinner" style="display:none;width:11px;height:11px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0"></span>
       <span id="syncBtnText">Sync Now</span>
     </button>
+    <p class="text-center font-mono text-xs text-dune-muted" style="letter-spacing:0.05em">hourly snapshot · posthog</p>
   </div>
-</div>
 
-{% if sync_status.error %}
-<div class="mb-4 px-4 py-2 rounded-sm border border-red-900 text-red-400 text-sm font-mono" style="background:rgba(120,40,40,0.15)">
-  ⚠ {{ sync_status.error }}
+</aside>
+
+<!-- ── MAIN: top tabs + sub-tabs + content ── -->
+<div style="min-width:0">
+
+{% if not c.captured_at %}
+<div class="mb-4 px-3.5 py-2.5 rounded-sm border flex items-center gap-3" style="border-color:#3a3f4a;border-left:2px solid #d4742a;background:rgba(212,116,42,0.06)">
+  <span style="width:10px;height:10px;border:2px solid #d4742a;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0"></span>
+  <span class="text-sm text-dune-text">First sync in progress. Snapshot history builds hourly — metrics fill in as ESI responds.</span>
 </div>
 {% endif %}
 
-<!-- Tabs -->
+<!-- Top-level tabs -->
+<div class="flex gap-0 mb-4 border-b border-dune-border">
+  <button id="maintab-character" onclick="setMainTab('character')"
+    class="maintab-btn px-5 py-2 font-display font-600 text-sm tracking-wider border-b-2 border-dune-sand sand -mb-px transition-colors">
+    Character
+  </button>
+  <button id="maintab-skills" onclick="setMainTab('skills')"
+    class="maintab-btn px-5 py-2 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
+    Skills <span class="text-xs font-mono font-300 ml-1">{{ skills|length }}</span>
+  </button>
+  <button id="maintab-trading" onclick="setMainTab('trading')"
+    class="maintab-btn px-5 py-2 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
+    Trading
+  </button>
+  <button id="maintab-industry" onclick="setMainTab('industry')"
+    class="maintab-btn px-5 py-2 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
+    Industry
+  </button>
+</div>
+
+<div id="panel-main-character">
+
+<!-- Sub-tabs -->
 <div class="flex gap-0 mb-6 border-b border-dune-border">
   <button id="tab-overview" onclick="switchTab('overview')"
     class="tab-btn px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-dune-sand sand -mb-px transition-colors">
@@ -54,29 +136,17 @@
     class="tab-btn px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
     Fitting
   </button>
-  <button id="tab-ships" onclick="switchTab('ships')"
+  <button id="tab-history" onclick="switchTab('history')"
     class="tab-btn px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
-    Ships
+    History
   </button>
-  <button id="tab-skills" onclick="switchTab('skills')"
-    class="tab-btn px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
-    Skills <span class="text-xs font-mono font-300 ml-1">{{ skills|length }}</span>
-  </button>
-  <a href="/trading/{{ cid }}"
-    class="px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
-    Trading
-  </a>
-  <a href="/industry/{{ cid }}"
-    class="px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
-    Industry
-  </a>
 </div>
 
 <!-- ══ OVERVIEW TAB ══ -->
 <div id="panel-overview">
 
-<!-- ── Live Status + Finances — single row ── -->
-<div class="flex items-stretch gap-0 mb-4">
+<!-- ── Live Status + Finances — single row (hidden: not in design, data lives in sidebar/History) ── -->
+<div class="flex items-stretch gap-0 mb-4" style="display:none">
 
 <!-- LEFT: Live Status (75%) -->
 <div style="flex: 0 1 75%; min-width: 0">
@@ -271,7 +341,7 @@
 </div><!-- /row -->
 
 <!-- ── Charts — wallet + ISK/hr stacked left, activity doughnut right ── -->
-<div class="card p-3 mb-3 flex items-center gap-2 flex-wrap">
+<div class="card p-3 mb-3 flex items-center gap-2 flex-wrap" style="display:none">
   <span class="label mr-1">Range</span>
   <button data-range="day"   onclick="setRange('day')"   class="chart-range-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Day</button>
   <button data-range="week"  onclick="setRange('week')"  class="chart-range-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Week</button>
@@ -286,8 +356,8 @@
     </div>
     <div class="card p-4">
       <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-        <p id="iskTimelineLabel" class="label">ISK Earned (bars) · 60-Min Rolling ISK/hr (line)</p>
-        <div class="flex gap-1">
+        <p id="iskTimelineLabel" class="label">ISK / Hour · rolling</p>
+        <div class="flex gap-1" style="display:none">
           <button id="tl-btn-20min" onclick="switchTimelineView('20min')"
             class="tl-btn font-mono text-xs px-2.5 py-1 rounded-sm border transition-colors"
             style="border-color:#c8a96e;color:#c8a96e">20 Min</button>
@@ -295,13 +365,13 @@
             class="tl-btn font-mono text-xs px-2.5 py-1 rounded-sm border border-dune-border text-dune-muted transition-colors">Sessions</button>
         </div>
       </div>
-      <div id="tl-range-bar" class="flex items-center gap-1 mb-2">
+      <div id="tl-range-bar" class="flex items-center gap-1 mb-2" style="display:none">
         <span class="label text-xs mr-1">Window</span>
         <button data-tlhours="6"  onclick="setTimelineHours(6)"  class="tl-hr-btn font-mono text-xs px-2 py-0.5 rounded-sm border border-dune-border text-dune-muted transition-colors">6h</button>
         <button data-tlhours="24" onclick="setTimelineHours(24)" class="tl-hr-btn font-mono text-xs px-2 py-0.5 rounded-sm border transition-colors" style="border-color:#c8a96e;color:#c8a96e">24h</button>
         <button data-tlhours="72" onclick="setTimelineHours(72)" class="tl-hr-btn font-mono text-xs px-2 py-0.5 rounded-sm border border-dune-border text-dune-muted transition-colors">3d</button>
       </div>
-      <div id="tl-legend" class="flex flex-wrap gap-3 mb-2" style="font-size:0.65rem;font-family:'Share Tech Mono'">
+      <div id="tl-legend" class="flex flex-wrap gap-3 mb-2" style="font-size:0.65rem;font-family:'Share Tech Mono';display:none">
         <span><span style="color:#5a9e6f">▶</span> Login</span>
         <span><span style="color:#c05050">◼</span> Logout</span>
         <span><span style="color:#c8a96e">◆</span> Jump</span>
@@ -311,7 +381,7 @@
       </div>
       <div style="position:relative">
         <div id="iskTimelineChart"></div>
-        <div id="timelineEvents" style="position:relative;min-height:44px;overflow:visible"></div>
+        <div id="timelineEvents" style="position:relative;min-height:44px;overflow:visible;display:none"></div>
       </div>
     </div>
   </div>
@@ -323,6 +393,32 @@
     </div>
   </div>
 </div>
+
+</div><!-- /panel-overview -->
+
+<!-- ══ FITTING TAB ══ -->
+<div id="panel-fitting" style="display:none">
+  <div class="flex justify-end mb-3">
+    <button id="fittingRefreshBtn" onclick="loadFitting(true)"
+      class="flex items-center gap-1.5 px-3 py-1 text-xs font-display font-600 tracking-wider border border-dune-border rounded-sm hover:border-dune-sand hover:text-dune-bright transition-colors text-dune-muted">
+      <svg id="fittingRefreshIcon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"></polyline>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+      </svg>
+      Refresh
+    </button>
+  </div>
+  <div id="fittingTabContent" class="text-dune-muted text-sm">Loading fitting data…</div>
+  <div id="optimalPanel" class="mt-4"></div>
+
+  <div class="mt-8 pt-6 border-t border-dune-border">
+    <p class="label mb-3">Fleet Readiness — All Owned Ships</p>
+    <div id="shipsContent" class="text-dune-muted text-sm">Loading ships…</div>
+  </div>
+</div>
+
+<!-- ══ HISTORY TAB ══ -->
+<div id="panel-history" style="display:none">
 
 <!-- ── Recent Activity — Sessions / Losses tabbed ── -->
 <div class="card p-4 mb-6">
@@ -462,31 +558,25 @@
   </div>
 </div>
 
-</div><!-- /panel-overview -->
+</div><!-- /panel-history -->
 
-<!-- ══ FITTING TAB ══ -->
-<div id="panel-fitting" style="display:none">
-  <div class="flex justify-end mb-3">
-    <button id="fittingRefreshBtn" onclick="loadFitting(true)"
-      class="flex items-center gap-1.5 px-3 py-1 text-xs font-display font-600 tracking-wider border border-dune-border rounded-sm hover:border-dune-sand hover:text-dune-bright transition-colors text-dune-muted">
-      <svg id="fittingRefreshIcon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="23 4 23 10 17 10"></polyline>
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-      </svg>
-      Refresh
-    </button>
-  </div>
-  <div id="fittingTabContent" class="text-dune-muted text-sm">Loading fitting data…</div>
-  <div id="optimalPanel" class="mt-4"></div>
+</div><!-- /panel-main-character -->
+
+<!-- ══ SKILLS TAB (top-level) ══ -->
+<div id="panel-main-skills" style="display:none">
+
+<div class="flex border-b border-dune-border mb-4">
+  <button onclick="setSkillsTab('trained')" id="skillstab-trained"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-dune-sand sand -mb-px transition-colors">
+    Trained
+  </button>
+  <button onclick="setSkillsTab('queue')" id="skillstab-queue"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+    Queue
+  </button>
 </div>
 
-<!-- ══ SHIPS TAB ══ -->
-<div id="panel-ships" style="display:none">
-  <div id="shipsContent" class="text-dune-muted text-sm">Loading ships…</div>
-</div>
-
-<!-- ══ SKILLS TAB ══ -->
-<div id="panel-skills" style="display:none">
+<div id="skillstab-content-trained">
   {% if skills %}
 
   {% set skill_groups = [] %}
@@ -557,7 +647,403 @@
     No skill data. Trigger a sync to populate.
   </div>
   {% endif %}
-</div>
+</div><!-- /skillstab-content-trained -->
+
+<div id="skillstab-content-queue" class="hidden">
+  <div class="card overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left border-b border-dune-border" style="background:#16181c">
+          <th class="px-4 py-3 label">Skill</th>
+          <th class="px-4 py-3 label text-center">To</th>
+          <th class="px-4 py-3 label text-right">Finishes</th>
+          <th class="px-4 py-3 label text-right">SP/hr</th>
+        </tr>
+      </thead>
+      <tbody id="skillQueueBody">
+        <tr><td colspan="4" class="text-center text-dune-muted py-6 text-sm">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div><!-- /skillstab-content-queue -->
+
+</div><!-- /panel-main-skills -->
+
+<!-- ══ TRADING TAB (top-level) ══ -->
+<div id="panel-main-trading" style="display:none">
+
+  <div class="flex items-center gap-5 mb-4">
+    <div class="flex-1">
+      <p class="text-dune-muted text-xs font-mono" id="lastSyncedLabel">—</p>
+    </div>
+    <button onclick="syncTrading()" id="tradingSyncBtn" class="btn-sand text-sm px-4 py-1.5 rounded-sm flex items-center gap-2">
+      <span id="tradingSyncSpinner" style="display:none;width:11px;height:11px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0"></span>
+      <span id="tradingSyncBtnText">Sync Trading Data</span>
+    </button>
+  </div>
+
+  <div id="tradingErrorBanner" class="hidden mb-4 px-4 py-2 rounded-sm border border-red-900 text-red-400 text-sm font-mono" style="background:rgba(120,40,40,0.15)"></div>
+
+  <div class="flex border-b border-dune-border mb-6">
+    <button onclick="setTradingTab('orders')" id="tradingtab-orders"
+      class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-dune-sand sand -mb-px transition-colors">
+      Orders
+    </button>
+    <button onclick="setTradingTab('pnl')" id="tradingtab-pnl"
+      class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+      P&amp;L
+    </button>
+    <button onclick="setTradingTab('markets')" id="tradingtab-markets"
+      class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+      Markets
+    </button>
+    <button onclick="setTradingTab('inventory')" id="tradingtab-inventory"
+      class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+      Inventory
+    </button>
+  </div>
+
+  <!-- ── TRADING: ORDERS ── -->
+  <div id="tradingtab-content-orders">
+
+    <div class="grid grid-cols-2 gap-3 mb-6" style="max-width:420px">
+      <div class="card p-3">
+        <p class="label mb-1">ISK in Escrow</p>
+        <p class="font-mono font-600 text-sm" style="color:#c8a96e" id="escrowTotal">—</p>
+      </div>
+      <div class="card p-3">
+        <p class="label mb-1">Cancelled Capital</p>
+        <p class="font-mono font-600 text-sm spice" id="sumCancelled">—</p>
+      </div>
+    </div>
+
+    <div class="card p-4 mb-6">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Active Orders</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Item</th>
+              <th class="text-right py-1.5 px-2 font-400">Type</th>
+              <th class="text-right py-1.5 px-2 font-400">Price</th>
+              <th class="text-right py-1.5 px-2 font-400">Remain</th>
+              <th class="text-right py-1.5 pl-2 font-400">% Filled</th>
+            </tr>
+          </thead>
+          <tbody id="activeOrdersBody">
+            <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card p-3 mb-6" id="escrowPanel">
+      <div class="flex flex-wrap items-center gap-x-6 gap-y-1">
+        <p class="label text-xs">Escrow Breakdown</p>
+        <span class="text-xs font-mono text-dune-muted">Buy Orders: <span id="escrowBuyOrders" class="text-dune-text">—</span></span>
+        <span class="text-xs font-mono text-dune-muted">Collateral: <span id="escrowCollateral" class="text-dune-text">—</span></span>
+        <span class="text-xs font-mono text-dune-muted">Rewards: <span id="escrowRewards" class="text-dune-text">—</span></span>
+        <span class="text-xs font-mono text-dune-muted">Bids: <span id="escrowAuction" class="text-dune-text">—</span></span>
+      </div>
+    </div>
+
+    <div class="card p-4">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Cancelled / Expired Orders</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Item</th>
+              <th class="text-right py-1.5 px-2 font-400">Qty</th>
+              <th class="text-right py-1.5 px-2 font-400">Price</th>
+              <th class="text-right py-1.5 px-2 font-400">Capital</th>
+              <th class="text-right py-1.5 pl-2 font-400">State</th>
+            </tr>
+          </thead>
+          <tbody id="cancelledBody">
+            <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /trading orders -->
+
+  <!-- ── TRADING: P&L ── -->
+  <div id="tradingtab-content-pnl" class="hidden">
+
+    <div class="grid grid-cols-3 gap-3 mb-6" style="max-width:520px">
+      <div class="card p-3">
+        <p class="label mb-1">Net P&amp;L (30d)</p>
+        <p class="font-mono font-600 text-sm sand" id="sumNetPnl">—</p>
+      </div>
+      <div class="card p-3">
+        <p class="label mb-1">Avg Margin</p>
+        <p class="font-mono font-600 text-sm text-dune-text" id="sumAvgMargin">—</p>
+      </div>
+      <div class="card p-3">
+        <p class="label mb-1">Fees Paid</p>
+        <p class="font-mono font-600 text-sm text-dune-muted" id="sumFees">—</p>
+      </div>
+    </div>
+
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <p class="font-display font-600 text-dune-bright tracking-wide text-sm">Trade Efficiency (30d)</p>
+        <div class="flex gap-2 text-xs font-mono text-dune-muted">
+          <span>Sort:</span>
+          <button onclick="sortPnl('net_profit')" class="hover:sand transition-colors" id="sort-net_profit">Profit</button>
+          <button onclick="sortPnl('margin_pct')" class="hover:sand transition-colors" id="sort-margin_pct">Margin</button>
+          <button onclick="sortPnl('qty_sold')" class="hover:sand transition-colors" id="sort-qty_sold">Volume</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Item</th>
+              <th class="text-right py-1.5 px-2 font-400">Buy Avg</th>
+              <th class="text-right py-1.5 px-2 font-400">Sell Avg</th>
+              <th class="text-right py-1.5 px-2 font-400">Qty</th>
+              <th class="text-right py-1.5 px-2 font-400">Margin</th>
+              <th class="text-right py-1.5 pl-2 font-400">Net P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody id="pnlBody">
+            <tr><td colspan="6" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /trading pnl -->
+
+  <!-- ── TRADING: MARKETS ── -->
+  <div id="tradingtab-content-markets" class="hidden">
+    <div class="flex items-center justify-between mb-4">
+      <p class="label">Price History — Tracked Items</p>
+      <button onclick="clearAllTracked()"
+        class="btn-ghost text-xs px-2 py-1 rounded-sm border border-dune-border text-dune-muted hover:border-spice transition-colors">
+        Clear All
+      </button>
+    </div>
+    <div id="trackedSection" class="hidden">
+      <div id="trackedCharts" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+    </div>
+    <p id="trackedEmpty" class="text-center text-dune-muted py-16 text-sm font-mono">
+      No items tracked — use the Inventory tab to track items and see price history here.
+    </p>
+  </div><!-- /trading markets -->
+
+  <!-- ── TRADING: INVENTORY ── -->
+  <div id="tradingtab-content-inventory" class="hidden">
+    <div class="card p-4">
+      <div class="flex flex-wrap items-center gap-3 mb-3">
+        <p class="font-display font-600 text-dune-bright tracking-wide text-sm mr-1">Inventory</p>
+        <div class="flex rounded-sm border border-dune-border overflow-hidden text-xs font-display font-600 tracking-wider">
+          <button id="grp-location" onclick="setGroupBy('location')"
+            class="px-3 py-1 sand" style="background:rgba(200,169,110,0.08)">By Location</button>
+          <button id="grp-item" onclick="setGroupBy('item')"
+            class="px-3 py-1 text-dune-muted hover:text-dune-text transition-colors">By Item</button>
+        </div>
+        <input id="invFilter" type="text" placeholder="Filter items…"
+          oninput="applyInventoryView()"
+          class="bg-transparent border border-dune-border rounded-sm px-2 py-1 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand"
+          style="width:160px" />
+        <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
+          <span>Sort:</span>
+          <button id="isort-name"  onclick="setInvSort('name')"  class="hover:sand transition-colors">Name</button>
+          <span class="text-dune-border">|</span>
+          <button id="isort-value" onclick="setInvSort('value')" class="sand">Value</button>
+          <span class="text-dune-border">|</span>
+          <button id="isort-qty"   onclick="setInvSort('qty')"   class="hover:sand transition-colors">Qty</button>
+          <button id="isort-dir" onclick="toggleSortDir()"
+            class="ml-1 px-1.5 py-0.5 border border-dune-border rounded-sm hover:border-dune-sand transition-colors">↓</button>
+        </div>
+        <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
+          <span>Value:</span>
+          <input id="fval-min" type="number" placeholder="min" oninput="applyInventoryView()"
+            class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+          <span>–</span>
+          <input id="fval-max" type="number" placeholder="max" oninput="applyInventoryView()"
+            class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+        </div>
+        <div class="flex items-center gap-1 text-xs font-mono text-dune-muted">
+          <span>Qty:</span>
+          <input id="fqty-min" type="number" placeholder="min" oninput="applyInventoryView()"
+            class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+          <span>–</span>
+          <input id="fqty-max" type="number" placeholder="max" oninput="applyInventoryView()"
+            class="bg-transparent border border-dune-border rounded-sm px-1.5 py-0.5 text-xs font-mono text-dune-text placeholder-dune-border focus:border-dune-sand w-20" />
+        </div>
+        <div class="flex-1"></div>
+        <button id="invTrackedBtn" onclick="toggleTrackedOnly()"
+          class="btn-ghost text-xs px-2 py-1 rounded-sm border border-dune-border text-dune-muted hover:border-dune-sand transition-colors">
+          Tracked Only
+        </button>
+        <button onclick="loadInventory()" id="invRefreshBtn" class="btn-ghost text-xs px-2 py-1 rounded-sm">Refresh</button>
+      </div>
+      <div id="inventoryBody">
+        <p class="text-xs font-mono text-dune-muted py-4 text-center">Click Refresh to load inventory from ESI</p>
+      </div>
+    </div>
+  </div><!-- /trading inventory -->
+
+</div><!-- /panel-main-trading -->
+
+<!-- ══ INDUSTRY TAB (top-level) ══ -->
+<div id="panel-main-industry" style="display:none">
+
+  <div class="flex items-center gap-5 mb-4">
+    <div class="flex-1">
+      <p class="text-dune-muted text-xs font-mono" id="industryLastSyncedLabel">—</p>
+    </div>
+    <button onclick="syncIndustry()" id="industrySyncBtn" class="btn-sand text-sm px-4 py-1.5 rounded-sm flex items-center gap-2">
+      <span id="industrySyncSpinner" style="display:none;width:11px;height:11px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0"></span>
+      <span id="industrySyncBtnText">Sync Industry Data</span>
+    </button>
+  </div>
+
+  <div id="industryErrorBanner" class="hidden mb-4 px-4 py-2 rounded-sm border border-red-900 text-red-400 text-sm font-mono" style="background:rgba(120,40,40,0.15)"></div>
+
+  <div class="flex border-b border-dune-border mb-6">
+    <button onclick="setIndustryTab('jobs')" id="industrytab-jobs"
+      class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-dune-sand sand -mb-px transition-colors">
+      Jobs
+    </button>
+    <button onclick="setIndustryTab('blueprints')" id="industrytab-blueprints"
+      class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+      Blueprints
+    </button>
+    <button onclick="setIndustryTab('contracts')" id="industrytab-contracts"
+      class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+      Contracts
+    </button>
+    <button onclick="setIndustryTab('pi')" id="industrytab-pi"
+      class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+      PI
+    </button>
+  </div>
+
+  <!-- ── INDUSTRY: JOBS ── -->
+  <div id="industrytab-content-jobs">
+    <div class="card p-4 mb-6">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Active Jobs</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Blueprint</th>
+              <th class="text-left py-1.5 px-2 font-400">Activity</th>
+              <th class="text-right py-1.5 px-2 font-400">Runs</th>
+              <th class="text-right py-1.5 px-2 font-400">Status</th>
+              <th class="text-right py-1.5 pl-2 font-400">Ends</th>
+            </tr>
+          </thead>
+          <tbody id="activeJobsBody">
+            <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card p-4">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Completed / Cancelled Jobs</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Blueprint</th>
+              <th class="text-left py-1.5 px-2 font-400">Activity</th>
+              <th class="text-right py-1.5 px-2 font-400">Runs</th>
+              <th class="text-right py-1.5 px-2 font-400">Status</th>
+              <th class="text-right py-1.5 pl-2 font-400">Completed</th>
+            </tr>
+          </thead>
+          <tbody id="completedJobsBody">
+            <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /industry jobs -->
+
+  <!-- ── INDUSTRY: BLUEPRINTS ── -->
+  <div id="industrytab-content-blueprints" class="hidden">
+    <div class="card p-4">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Blueprints</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Item</th>
+              <th class="text-right py-1.5 px-2 font-400">Type</th>
+              <th class="text-right py-1.5 px-2 font-400">ME</th>
+              <th class="text-right py-1.5 px-2 font-400">TE</th>
+              <th class="text-right py-1.5 pl-2 font-400">Runs</th>
+            </tr>
+          </thead>
+          <tbody id="blueprintsBody">
+            <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /industry blueprints -->
+
+  <!-- ── INDUSTRY: CONTRACTS ── -->
+  <div id="industrytab-content-contracts" class="hidden">
+    <div class="card p-4 mb-6">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Outstanding / In Progress</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Title</th>
+              <th class="text-right py-1.5 px-2 font-400">Type</th>
+              <th class="text-right py-1.5 px-2 font-400">Status</th>
+              <th class="text-right py-1.5 px-2 font-400">Price / Reward</th>
+              <th class="text-right py-1.5 pl-2 font-400">Expires</th>
+            </tr>
+          </thead>
+          <tbody id="openContractsBody">
+            <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card p-4">
+      <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Finished / Failed / Cancelled</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs font-mono">
+          <thead>
+            <tr class="text-dune-muted border-b border-dune-border">
+              <th class="text-left py-1.5 pr-3 font-400">Title</th>
+              <th class="text-right py-1.5 px-2 font-400">Type</th>
+              <th class="text-right py-1.5 px-2 font-400">Status</th>
+              <th class="text-right py-1.5 pl-2 font-400">Price / Reward</th>
+            </tr>
+          </thead>
+          <tbody id="closedContractsBody">
+            <tr><td colspan="4" class="text-center text-dune-muted py-6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /industry contracts -->
+
+  <!-- ── INDUSTRY: PI ── -->
+  <div id="industrytab-content-pi" class="hidden">
+    <div id="piCards" class="grid grid-cols-1 lg:grid-cols-3 gap-4"></div>
+    <p id="piEmpty" class="hidden text-center text-dune-muted py-16 text-sm font-mono">
+      No PI colonies found — or the PI scope hasn't been re-authorized yet for this character
+      (see <a href="/auth/start" class="sand hover:underline">re-authorize</a>).
+    </p>
+  </div><!-- /industry pi -->
+
+</div><!-- /panel-main-industry -->
+
+</div><!-- /main content -->
+</div><!-- /command rail shell -->
 
 {% endblock %}
 
@@ -1311,7 +1797,7 @@ function filterShips(q) {
 }
 
 function switchTab(name) {
-  ['overview','fitting','ships','skills'].forEach(t => {
+  ['overview','fitting','history'].forEach(t => {
     document.getElementById('panel-' + t).style.display = t === name ? '' : 'none';
   });
   document.querySelectorAll('.tab-btn').forEach(b => {
@@ -1319,9 +1805,78 @@ function switchTab(name) {
     b.style.borderBottomColor = active ? '#c8a96e' : 'transparent';
     b.style.color = active ? '#c8a96e' : '#6b7280';
   });
-  if (name === 'fitting') { loadFitting(); loadOptimal(); }
-  if (name === 'ships')   { loadShips(); }
+  if (name === 'fitting') { loadFitting(); loadOptimal(); loadShips(); }
 }
+
+// ── Skills sub-tabs (Trained / Queue) ───────────────────────────────────────────
+let _skillQueueLoaded = false;
+
+function setSkillsTab(name) {
+  ['trained', 'queue'].forEach(t => {
+    document.getElementById(`skillstab-content-${t}`).classList.toggle('hidden', t !== name);
+    const btn = document.getElementById(`skillstab-${t}`);
+    const active = t === name;
+    btn.className = `px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 -mb-px transition-colors ${
+      active ? 'border-dune-sand sand' : 'border-transparent text-dune-muted hover:text-dune-text'
+    }`;
+  });
+  if (name === 'queue' && !_skillQueueLoaded) {
+    _skillQueueLoaded = true;
+    loadSkillQueue();
+  }
+}
+
+async function loadSkillQueue() {
+  const tbody = document.getElementById('skillQueueBody');
+  try {
+    const resp = await fetch(`/api/c/${CID}/skillqueue`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const queue = data.queue || [];
+    if (!queue.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-dune-muted py-6 text-sm">No skills in training queue</td></tr>';
+      return;
+    }
+    tbody.innerHTML = queue.map(q => `
+      <tr class="row border-b border-dune-border border-opacity-30">
+        <td class="px-4 py-2 font-display text-dune-text">${q.skill_name}</td>
+        <td class="px-4 py-2 text-center font-mono text-xs text-dune-muted">${q.to_level}</td>
+        <td class="px-4 py-2 text-right font-mono text-xs">${q.finishes}</td>
+        <td class="px-4 py-2 text-right font-mono text-xs text-dune-muted">${q.sp_per_hour ? q.sp_per_hour.toLocaleString() : '—'}</td>
+      </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-red-400 py-6 text-sm">Failed to load skill queue</td></tr>';
+  }
+}
+
+// ── Top-level tab switching (Character / Skills / Trading / Industry) ──────────
+let _tradingTabLoaded  = false;
+let _industryTabLoaded = false;
+
+function setMainTab(name) {
+  ['character', 'skills', 'trading', 'industry'].forEach(t => {
+    const panelId = t === 'character' ? 'panel-main-character' : 'panel-main-' + t;
+    document.getElementById(panelId).style.display = t === name ? '' : 'none';
+    const btn = document.getElementById('maintab-' + t);
+    const active = t === name;
+    btn.style.borderBottomColor = active ? '#c8a96e' : 'transparent';
+    btn.style.color = active ? '#c8a96e' : '#6b7280';
+  });
+  if (name === 'trading' && !_tradingTabLoaded) {
+    _tradingTabLoaded = true;
+    initTradingTab();
+  }
+  if (name === 'industry' && !_industryTabLoaded) {
+    _industryTabLoaded = true;
+    initIndustryTab();
+  }
+}
+
+// Old /skills, /trading, /industry routes redirect here with ?tab=<name>
+(() => {
+  const tab = new URLSearchParams(location.search).get('tab');
+  if (tab && ['skills', 'trading', 'industry'].includes(tab)) setMainTab(tab);
+})();
 
 let _activeSkillGroup = 'all';
 
@@ -1447,5 +2002,911 @@ async function loadClone() {
 }
 
 loadClone();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TRADING TAB (merged from trading.html — CID/fmtIsk reused from above)
+// ═══════════════════════════════════════════════════════════════════════════
+let _pnlData = [];
+let _pnlSort = 'net_profit';
+let _trackedItems = new Set();
+let _profitChart = null;
+let _historyCharts = {};
+let _tradingSyncInterval = null;
+
+function fmtIsk(v) {
+  if (v == null || isNaN(v)) return '—';
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return (v / 1e12).toFixed(2) + 'T';
+  if (abs >= 1e9)  return (v / 1e9).toFixed(2) + 'B';
+  if (abs >= 1e6)  return (v / 1e6).toFixed(2) + 'M';
+  return v.toLocaleString('en-US', {maximumFractionDigits: 0});
+}
+
+function marginColor(pct) {
+  if (pct >= 15) return 'color:#5a9e6f';
+  if (pct >= 5)  return 'color:#b8883a';
+  return 'color:#9e4040';
+}
+
+function pnlColor(v) {
+  return v >= 0 ? 'color:#5a9e6f' : 'color:#9e4040';
+}
+
+function renderPnl(data) {
+  const tbody = document.getElementById('pnlBody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-dune-muted py-6">No trade data for last 30 days</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(r => `
+    <tr class="row border-b border-dune-border border-opacity-40">
+      <td class="py-1.5 pr-3 text-dune-text truncate max-w-32" title="${r.type_name}">${r.type_name}</td>
+      <td class="text-right py-1.5 px-2 text-dune-muted">${fmtIsk(r.avg_buy)}</td>
+      <td class="text-right py-1.5 px-2 text-dune-muted">${fmtIsk(r.avg_sell)}</td>
+      <td class="text-right py-1.5 px-2">${(r.qty_sold || 0).toLocaleString()}</td>
+      <td class="text-right py-1.5 px-2 font-600" style="${marginColor(r.margin_pct)}">${r.margin_pct.toFixed(1)}%</td>
+      <td class="text-right py-1.5 pl-2 font-600" style="${pnlColor(r.net_profit)}">${fmtIsk(r.net_profit)}</td>
+    </tr>
+  `).join('');
+}
+
+function sortPnl(col) {
+  _pnlSort = col;
+  document.querySelectorAll('[id^="sort-"]').forEach(b => b.classList.remove('sand'));
+  document.getElementById('sort-' + col)?.classList.add('sand');
+  const sorted = [..._pnlData].sort((a, b) => b[col] - a[col]);
+  renderPnl(sorted);
+}
+
+function renderCancelled(data) {
+  const tbody = document.getElementById('cancelledBody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-dune-muted py-6">No cancelled / expired orders</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(r => `
+    <tr class="row border-b border-dune-border border-opacity-40">
+      <td class="py-1.5 pr-3 text-dune-text truncate max-w-32" title="${r.type_name}">${r.type_name}</td>
+      <td class="text-right py-1.5 px-2">${(r.cancelled_qty || 0).toLocaleString()}</td>
+      <td class="text-right py-1.5 px-2 text-dune-muted">${fmtIsk(r.price)}</td>
+      <td class="text-right py-1.5 px-2 spice">${fmtIsk(r.capital_at_risk)}</td>
+      <td class="text-right py-1.5 pl-2 text-dune-muted">${r.state}</td>
+    </tr>
+  `).join('');
+}
+
+function renderActiveOrders(data) {
+  const tbody = document.getElementById('activeOrdersBody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-dune-muted py-6">No active orders</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(r => {
+    const filled = r.volume_total ? ((r.volume_total - r.volume_remain) / r.volume_total * 100) : 0;
+    return `
+      <tr class="row border-b border-dune-border border-opacity-40">
+        <td class="py-1.5 pr-3 text-dune-text truncate max-w-32" title="${r.type_name || r.type_id}">${r.type_name || r.type_id}</td>
+        <td class="text-right py-1.5 px-2 text-dune-muted">${r.is_buy_order ? 'Buy' : 'Sell'}</td>
+        <td class="text-right py-1.5 px-2">${fmtIsk(r.price)}</td>
+        <td class="text-right py-1.5 px-2">${(r.volume_remain || 0).toLocaleString()}</td>
+        <td class="text-right py-1.5 pl-2 text-dune-muted">${filled.toFixed(0)}%</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+let _invData    = null;
+let _invFlat    = [];
+let _invGroupBy     = 'location';
+let _invSort        = 'value';
+let _invSortAsc     = false;
+let _invTrackedOnly = false;
+
+function toggleSortDir() {
+  _invSortAsc = !_invSortAsc;
+  document.getElementById('isort-dir').textContent = _invSortAsc ? '↑' : '↓';
+  applyInventoryView();
+}
+
+function setGroupBy(mode) {
+  _invGroupBy = mode;
+  document.getElementById('grp-location').className =
+    mode === 'location' ? 'px-3 py-1 sand' : 'px-3 py-1 text-dune-muted hover:text-dune-text transition-colors';
+  document.getElementById('grp-item').className =
+    mode === 'item' ? 'px-3 py-1 sand' : 'px-3 py-1 text-dune-muted hover:text-dune-text transition-colors';
+  document.getElementById('grp-location').style.background = mode === 'location' ? 'rgba(200,169,110,0.08)' : '';
+  document.getElementById('grp-item').style.background     = mode === 'item'     ? 'rgba(200,169,110,0.08)' : '';
+  applyInventoryView();
+}
+
+function toggleTrackedOnly() {
+  _invTrackedOnly = !_invTrackedOnly;
+  const btn = document.getElementById('invTrackedBtn');
+  btn.style.borderColor = _invTrackedOnly ? '#c8a96e' : '';
+  btn.style.color = _invTrackedOnly ? '#c8a96e' : '';
+  applyInventoryView();
+}
+
+async function clearAllTracked() {
+  if (!_trackedItems.size) return;
+  const ids = [..._trackedItems];
+  await Promise.all(ids.map(id => fetch(`/api/c/${CID}/track-item/${id}`, {method: 'DELETE'})));
+  for (const id of ids) {
+    _trackedItems.delete(id);
+    const card = document.getElementById(`hist-card-${id}`);
+    if (card) card.remove();
+    if (_historyCharts[id]) { _historyCharts[id].destroy(); delete _historyCharts[id]; }
+    const btn = document.getElementById(`track-btn-${id}`);
+    if (btn) {
+      btn.textContent = 'Track';
+      btn.className = 'text-xs px-2 py-0.5 rounded-sm border transition-colors border-dune-border text-dune-muted hover:border-dune-sand hover:sand';
+    }
+  }
+  document.getElementById('trackedSection').classList.add('hidden');
+  document.getElementById('trackedEmpty').classList.remove('hidden');
+  if (_invFlat.length) applyInventoryView();
+}
+
+function setInvSort(col) {
+  if (_invSort === col) {
+    _invSortAsc = !_invSortAsc;
+    document.getElementById('isort-dir').textContent = _invSortAsc ? '↑' : '↓';
+  } else {
+    _invSort = col;
+    _invSortAsc = col === 'name';
+    document.getElementById('isort-dir').textContent = _invSortAsc ? '↑' : '↓';
+  }
+  ['name','value','qty'].forEach(c => {
+    document.getElementById('isort-' + c).className =
+      c === col ? 'sand' : 'hover:sand transition-colors';
+  });
+  applyInventoryView();
+}
+
+function _sortItems(items) {
+  return [...items].sort((a, b) => {
+    let cmp;
+    if (_invSort === 'name') cmp = a.type_name.localeCompare(b.type_name);
+    else if (_invSort === 'qty') cmp = a.quantity - b.quantity;
+    else cmp = a.est_value - b.est_value;
+    return _invSortAsc ? cmp : -cmp;
+  });
+}
+
+function _itemRow(item, extraCol) {
+  const tracked  = _trackedItems.has(item.type_id);
+  const safeName = item.type_name.replace(/'/g, "\\'");
+  return `<tr class="row border-b border-dune-border border-opacity-30">
+    <td class="py-1.5 pr-3 text-dune-text text-xs">${item.type_name}</td>
+    ${extraCol ? `<td class="py-1.5 px-2 text-dune-muted text-xs truncate max-w-40" title="${extraCol}">${extraCol}</td>` : ''}
+    <td class="text-right py-1.5 px-2 font-mono text-xs">${item.quantity.toLocaleString()}</td>
+    <td class="text-right py-1.5 px-2 font-mono text-xs text-dune-muted">${fmtIsk(item.est_value)}</td>
+    <td class="text-right py-1.5 pl-2">
+      <button onclick="toggleTrack(${item.type_id},'${safeName}',0)"
+              id="track-btn-${item.type_id}"
+              class="text-xs px-2 py-0.5 rounded-sm border transition-colors ${tracked ? 'border-dune-sand sand' : 'border-dune-border text-dune-muted hover:border-dune-sand hover:sand'}">
+        ${tracked ? 'Tracked' : 'Track'}
+      </button>
+    </td>
+  </tr>`;
+}
+
+function _groupBlock(heading, items, showLocation) {
+  const total = items.reduce((s, i) => s + i.est_value, 0);
+  const sorted = _sortItems(items);
+  const rows = sorted.map(i => _itemRow(i, showLocation ? i.location_name : null)).join('');
+  const locCol  = showLocation ? '<th class="text-left py-1 px-2 font-400">Location</th>' : '';
+  return `<div class="mb-5">
+    <div class="flex items-center justify-between py-1.5 border-b border-dune-border cursor-pointer select-none"
+         onclick="this.nextElementSibling.classList.toggle('hidden')">
+      <p class="font-display font-600 text-dune-text text-sm">${heading}</p>
+      <p class="text-xs font-mono text-dune-muted">${items.length} item${items.length !== 1 ? 's' : ''} — <span class="sand">${fmtIsk(total)} ISK</span></p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead><tr class="text-dune-muted text-xs">
+          <th class="text-left py-1 pr-3 font-400">Item</th>
+          ${locCol}
+          <th class="text-right py-1 px-2 font-400">Qty</th>
+          <th class="text-right py-1 px-2 font-400">Est. Value</th>
+          <th class="text-right py-1 pl-2 font-400">Track</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function applyInventoryView() {
+  if (!_invFlat.length) return;
+  const container = document.getElementById('inventoryBody');
+  const filter  = (document.getElementById('invFilter').value || '').toLowerCase();
+  const valMin  = parseFloat(document.getElementById('fval-min').value);
+  const valMax  = parseFloat(document.getElementById('fval-max').value);
+  const qtyMin  = parseFloat(document.getElementById('fqty-min').value);
+  const qtyMax  = parseFloat(document.getElementById('fqty-max').value);
+
+  const visible = _invFlat.filter(i => {
+    if (_invTrackedOnly && !_trackedItems.has(i.type_id)) return false;
+    if (filter && !i.type_name.toLowerCase().includes(filter) && !i.location_name.toLowerCase().includes(filter)) return false;
+    if (!isNaN(valMin) && i.est_value < valMin) return false;
+    if (!isNaN(valMax) && i.est_value > valMax) return false;
+    if (!isNaN(qtyMin) && i.quantity < qtyMin) return false;
+    if (!isNaN(qtyMax) && i.quantity > qtyMax) return false;
+    return true;
+  });
+
+  if (!visible.length) {
+    container.innerHTML = '<p class="text-xs font-mono text-dune-muted py-4 text-center">No items match filter</p>';
+    return;
+  }
+
+  if (_invGroupBy === 'location') {
+    const groups = {};
+    for (const item of visible) {
+      (groups[item.location_name] = groups[item.location_name] || []).push(item);
+    }
+    const sortedGroups = Object.keys(groups).sort((a, b) =>
+      groups[b].reduce((s, i) => s + i.est_value, 0) -
+      groups[a].reduce((s, i) => s + i.est_value, 0)
+    );
+    container.innerHTML = sortedGroups.map(loc => _groupBlock(loc, groups[loc], false)).join('');
+  } else {
+    const groups = {};
+    for (const item of visible) {
+      const key = item.type_name;
+      if (!groups[key]) groups[key] = {type_id: item.type_id, type_name: item.type_name, quantity: 0, est_value: 0, locations: new Set()};
+      groups[key].quantity  += item.quantity;
+      groups[key].est_value += item.est_value;
+      groups[key].locations.add(item.location_name);
+    }
+    const items = Object.values(groups).map(g => ({
+      ...g, location_name: [...g.locations].join(', ')
+    }));
+    const sorted = _sortItems(items);
+    const total  = sorted.reduce((s, i) => s + i.est_value, 0);
+    const rows   = sorted.map(i => _itemRow(i, i.location_name)).join('');
+    container.innerHTML = `<div class="overflow-x-auto">
+      <table class="w-full">
+        <thead><tr class="text-dune-muted text-xs">
+          <th class="text-left py-1 pr-3 font-400">Item</th>
+          <th class="text-left py-1 px-2 font-400">Locations</th>
+          <th class="text-right py-1 px-2 font-400">Total Qty</th>
+          <th class="text-right py-1 px-2 font-400">Est. Value</th>
+          <th class="text-right py-1 pl-2 font-400">Track</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="text-right text-xs font-mono text-dune-muted mt-2">${sorted.length} unique items — <span class="sand">${fmtIsk(total)} ISK total</span></p>
+    </div>`;
+  }
+}
+
+async function loadInventory() {
+  const btn = document.getElementById('invRefreshBtn');
+  const container = document.getElementById('inventoryBody');
+  btn.textContent = 'Loading…';
+  btn.disabled = true;
+  container.innerHTML = '<p class="text-xs font-mono text-dune-muted py-4 text-center">Fetching assets from ESI…</p>';
+  try {
+    const resp = await fetch(`/api/c/${CID}/inventory`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    _invData = data;
+    _invFlat = [];
+    for (const [loc, items] of Object.entries(data.by_location)) {
+      for (const item of items) {
+        _invFlat.push({...item, location_name: loc});
+      }
+    }
+    applyInventoryView();
+  } catch (e) {
+    container.innerHTML = `<p class="text-xs font-mono text-red-400 py-4 text-center">Failed to load inventory: ${e.message}</p>`;
+  } finally {
+    btn.textContent = 'Refresh';
+    btn.disabled = false;
+  }
+}
+
+function setTradingTab(name) {
+  ['orders', 'pnl', 'markets', 'inventory'].forEach(t => {
+    document.getElementById(`tradingtab-content-${t}`).classList.toggle('hidden', t !== name);
+    const btn = document.getElementById(`tradingtab-${t}`);
+    const active = t === name;
+    btn.className = `px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 -mb-px transition-colors ${
+      active ? 'border-dune-sand sand' : 'border-transparent text-dune-muted hover:text-dune-text'
+    }`;
+  });
+  if (name === 'markets') {
+    setTimeout(() => Object.values(_historyCharts).forEach(c => c.updateOptions({})), 50);
+  }
+}
+
+function computeVolatility(history) {
+  if (!history.length) return {label: 'N/A', badge: 'text-dune-muted'};
+  const prices = history.map(h => h.average).filter(Boolean);
+  if (!prices.length) return {label: 'N/A', badge: 'text-dune-muted'};
+  const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
+  const std  = Math.sqrt(prices.reduce((s, p) => s + (p - mean) ** 2, 0) / prices.length);
+  const cv   = mean ? (std / mean * 100) : 0;
+  if (cv > 15) return {label: 'High Volatility', badge: 'color:#9e4040'};
+  if (cv > 5)  return {label: 'Med Volatility',  badge: 'color:#b8883a'};
+  return {label: 'Low Volatility', badge: 'color:#5a9e6f'};
+}
+
+function computeTrendLabel(history) {
+  if (history.length < 14) return {arrow: '→', label: 'Insufficient data', style: 'color:#6b7280'};
+  const prices = history.map(h => h.average).filter(Boolean);
+  const recent = prices.slice(-7).reduce((a, b) => a + b, 0) / Math.min(7, prices.slice(-7).length);
+  const prev   = prices.slice(-14, -7).reduce((a, b) => a + b, 0) / Math.min(7, prices.slice(-14, -7).length);
+  const pct    = prev ? (recent - prev) / prev * 100 : 0;
+  if (pct > 3)  return {arrow: '↑', label: 'Hold — price rising',    style: 'color:#5a9e6f'};
+  if (pct < -3) return {arrow: '↓', label: 'Offload — declining trend', style: 'color:#9e4040'};
+  return {arrow: '→', label: 'Hold / neutral trend', style: 'color:#b8883a'};
+}
+
+function renderTrackedChart(typeId, typeName, history, currentPrice) {
+  if (_historyCharts[typeId]) { _historyCharts[typeId].destroy(); delete _historyCharts[typeId]; }
+
+  let container = document.getElementById(`hist-card-${typeId}`);
+  if (!container) {
+    container = document.createElement('div');
+    container.id = `hist-card-${typeId}`;
+    container.className = 'card p-3';
+    document.getElementById('trackedCharts').appendChild(container);
+  }
+
+  const vol   = computeVolatility(history);
+  const trend = computeTrendLabel(history);
+  const labels = history.map(h => h.date.slice(5));
+  const avg    = history.map(h => h.average);
+
+  const rolling = avg.map((_, i) => {
+    const slice = avg.slice(Math.max(0, i - 6), i + 1);
+    return +(slice.reduce((a, b) => a + b, 0) / slice.length).toFixed(2);
+  });
+
+  const fitWindow = avg.slice(-14).filter(Boolean);
+  const projLabels = [];
+  const projData = new Array(avg.length).fill(null);
+  projData[avg.length - 1] = avg[avg.length - 1] || null;
+  if (fitWindow.length >= 3) {
+    const n = fitWindow.length;
+    const xs = fitWindow.map((_, i) => i);
+    const sumX  = xs.reduce((a, b) => a + b, 0);
+    const sumY  = fitWindow.reduce((a, b) => a + b, 0);
+    const sumXY = xs.reduce((s, x, i) => s + x * fitWindow[i], 0);
+    const sumX2 = xs.reduce((s, x) => s + x * x, 0);
+    const slope     = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+    const lastDate  = new Date(history[history.length - 1].date);
+    for (let d = 1; d <= 7; d++) {
+      projData.push(Math.max(0, +(intercept + slope * (n - 1 + d)).toFixed(2)));
+      const nd = new Date(lastDate);
+      nd.setDate(nd.getDate() + d);
+      projLabels.push(`${String(nd.getMonth()+1).padStart(2,'0')}-${String(nd.getDate()).padStart(2,'0')}`);
+    }
+  }
+  const allLabels   = [...labels, ...projLabels];
+  const avgFull     = [...avg,     ...projLabels.map(() => null)];
+  const rollingFull = [...rolling, ...projLabels.map(() => null)];
+
+  const projEnd   = projData[projData.length - 1];
+  const projDelta = projEnd && avg[avg.length - 1]
+    ? ((projEnd - avg[avg.length - 1]) / avg[avg.length - 1] * 100) : null;
+  const projLabel = projDelta !== null
+    ? `7d proj: ${projDelta >= 0 ? '+' : ''}${projDelta.toFixed(1)}% → ${fmtIsk(projEnd)}` : '';
+
+  const lastDate    = history.length ? history[history.length - 1].date : null;
+  const validAvg    = avg.filter(Boolean);
+  const max30       = validAvg.length > 0 ? Math.max(...validAvg) : 0;
+  const nearHigh    = currentPrice && max30 && (currentPrice / max30 > 0.92);
+  const action      = nearHigh ? 'Sell now — near 30d high' : trend.label;
+  const actionStyle = nearHigh ? 'color:#c8a96e' : trend.style;
+
+  container.innerHTML = `
+    <div class="flex items-start justify-between mb-2">
+      <div>
+        <p class="font-display font-600 text-dune-text text-sm">${typeName}</p>
+        <p class="text-xs font-mono mt-0.5" style="${actionStyle}">${trend.arrow} ${action}</p>
+        ${projLabel ? `<p class="text-xs font-mono mt-0.5" style="color:#38bdf8">${projLabel}</p>` : ''}
+      </div>
+      <div class="flex gap-2 items-center">
+        ${lastDate ? `<span class="text-xs font-mono text-dune-muted">as of ${lastDate}</span>` : ''}
+        <span class="text-xs font-mono px-1.5 py-0.5 rounded-sm border border-dune-border" style="${vol.badge}">${vol.label}</span>
+        <button onclick="untrackItem(${typeId})" class="text-base leading-none font-600 text-dune-muted hover:spice transition-colors px-1" title="Remove">×</button>
+      </div>
+    </div>
+    <div id="hist-chart-${typeId}"></div>
+  `;
+
+  const chart = new ApexCharts(document.getElementById(`hist-chart-${typeId}`), {
+    chart: { type: 'line', height: 160, background: 'transparent',
+      toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: false },
+      fontFamily: 'Share Tech Mono, monospace', foreColor: '#6b7280' },
+    series: [
+      { name: 'Daily Avg',     type: 'area', data: avgFull },
+      { name: '7d Rolling',    type: 'line', data: rollingFull },
+      { name: '7d Projection', type: 'line', data: projData },
+    ],
+    colors: ['#c8a96e', '#6b7280', '#38bdf8'],
+    xaxis: { categories: allLabels,
+      labels: { style: { fontSize: '9px', colors: '#6b7280' } }, tickAmount: 8 },
+    yaxis: { labels: { formatter: v => v != null ? fmtIsk(v) : '',
+      style: { fontSize: '9px', colors: '#6b7280' } } },
+    stroke: { width: [1.5, 1, 1.5], curve: 'smooth', dashArray: [0, 4, 6] },
+    fill: { type: ['gradient', 'solid', 'solid'],
+      gradient: { opacityFrom: 0.2, opacityTo: 0.02 } },
+    dataLabels: { enabled: false },
+    grid: { borderColor: 'rgba(42,45,53,0.4)', strokeDashArray: 2 },
+    tooltip: { shared: true,
+      y: { formatter: v => v != null ? fmtIsk(v) + ' ISK' : '—' }, theme: 'dark' },
+    legend: { show: false },
+  });
+  _historyCharts[typeId] = chart;
+  chart.render();
+
+  document.getElementById('trackedSection').classList.remove('hidden');
+  document.getElementById('trackedEmpty').classList.add('hidden');
+}
+
+async function toggleTrack(typeId, typeName, currentPrice) {
+  const btn = document.getElementById(`track-btn-${typeId}`);
+  if (_trackedItems.has(typeId)) {
+    await untrackItem(typeId);
+    return;
+  }
+  btn.textContent = 'Loading…';
+  btn.disabled = true;
+  try {
+    const resp = await fetch(`/api/c/${CID}/track-item`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type_id: typeId, type_name: typeName, region_id: 10000002})
+    });
+    const data = await resp.json();
+    _trackedItems.add(typeId);
+    btn.textContent = 'Tracked';
+    btn.className = 'text-xs px-2 py-0.5 rounded-sm border transition-colors border-dune-sand sand';
+    btn.disabled = false;
+    renderTrackedChart(typeId, typeName, data.history || [], currentPrice);
+  } catch (e) {
+    btn.textContent = 'Track';
+    btn.disabled = false;
+  }
+}
+
+async function untrackItem(typeId) {
+  await fetch(`/api/c/${CID}/track-item/${typeId}`, {method: 'DELETE'});
+  _trackedItems.delete(typeId);
+  const card = document.getElementById(`hist-card-${typeId}`);
+  if (card) card.remove();
+  if (_historyCharts[typeId]) { _historyCharts[typeId].destroy(); delete _historyCharts[typeId]; }
+  const btn = document.getElementById(`track-btn-${typeId}`);
+  if (btn) {
+    btn.textContent = 'Track';
+    btn.className = 'text-xs px-2 py-0.5 rounded-sm border transition-colors border-dune-border text-dune-muted hover:border-dune-sand hover:sand';
+  }
+  if (!document.getElementById('trackedCharts').children.length) {
+    document.getElementById('trackedSection').classList.add('hidden');
+    document.getElementById('trackedEmpty').classList.remove('hidden');
+  }
+}
+
+async function loadTradingData() {
+  try {
+    const resp = await fetch(`/api/c/${CID}/trading-data`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    _pnlData = data.pnl || [];
+    _trackedItems = new Set((data.tracked_items || []).map(t => t.type_id));
+
+    const totalNet   = _pnlData.reduce((s, r) => s + r.net_profit, 0);
+    const totalFees  = _pnlData.reduce((s, r) => s + r.fees, 0);
+    const cancelCap  = (data.cancelled_orders || []).reduce((s, r) => s + r.capital_at_risk, 0);
+    const totalSell  = _pnlData.reduce((s, r) => s + (r.avg_sell * r.qty_sold), 0);
+    const avgMargin  = totalSell > 0
+      ? _pnlData.reduce((s, r) => s + r.margin_pct * (r.avg_sell * r.qty_sold), 0) / totalSell
+      : 0;
+
+    document.getElementById('sumNetPnl').textContent     = fmtIsk(totalNet);
+    document.getElementById('sumNetPnl').style.cssText   = pnlColor(totalNet);
+    document.getElementById('sumAvgMargin').textContent  = avgMargin.toFixed(1) + '%';
+    document.getElementById('sumFees').textContent       = fmtIsk(totalFees);
+    document.getElementById('sumCancelled').textContent  = fmtIsk(cancelCap);
+
+    sortPnl(_pnlSort);
+    renderCancelled(data.cancelled_orders || []);
+    renderActiveOrders(data.active_orders || []);
+
+    for (const item of (data.tracked_items || [])) {
+      try {
+        const hresp = await fetch(`/api/c/${CID}/market-history/${item.type_id}?region_id=${item.region_id}`);
+        if (!hresp.ok) throw new Error(`HTTP ${hresp.status}`);
+        const history = await hresp.json();
+        renderTrackedChart(item.type_id, item.type_name || String(item.type_id), history, null);
+      } catch (e) {
+        console.error(`[tracked] Failed to load history for type ${item.type_id}:`, e);
+      }
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function setTradingLastSynced(ts) {
+  const label = document.getElementById('lastSyncedLabel');
+  if (ts) {
+    label.textContent = 'Last synced ' + ts.slice(0, 19).replace('T', ' ') + ' UTC';
+  } else {
+    label.textContent = 'Not yet synced — click Sync Trading Data';
+  }
+}
+
+async function syncTrading() {
+  if (_tradingSyncInterval) return;
+  const btn     = document.getElementById('tradingSyncBtn');
+  const spinner = document.getElementById('tradingSyncSpinner');
+  const btnText = document.getElementById('tradingSyncBtnText');
+
+  spinner.style.display = 'inline-block';
+  btnText.textContent = 'Syncing…';
+  btn.disabled = true;
+  document.getElementById('tradingErrorBanner').classList.add('hidden');
+
+  try {
+    await fetch(`/api/c/${CID}/sync-trading`, {method: 'POST'});
+
+    _tradingSyncInterval = setInterval(async () => {
+      try {
+        const s = await (await fetch(`/api/c/${CID}/trading-status`)).json();
+        if (!s.running) {
+          clearInterval(_tradingSyncInterval);
+          _tradingSyncInterval = null;
+          spinner.style.display = 'none';
+          btn.disabled = false;
+          if (s.error) {
+            btnText.textContent = 'Sync Trading Data';
+            const banner = document.getElementById('tradingErrorBanner');
+            banner.textContent = '⚠ ' + s.error;
+            banner.classList.remove('hidden');
+          } else {
+            btnText.textContent = 'Done ✓';
+            setTradingLastSynced(s.last);
+            await loadTradingData();
+            setTimeout(() => { btnText.textContent = 'Sync Trading Data'; }, 2000);
+          }
+        }
+      } catch (e) {
+        clearInterval(_tradingSyncInterval);
+        _tradingSyncInterval = null;
+        spinner.style.display = 'none';
+        btnText.textContent = 'Sync Trading Data';
+        btn.disabled = false;
+      }
+    }, 1500);
+  } catch (e) {
+    spinner.style.display = 'none';
+    btnText.textContent = 'Sync Trading Data';
+    btn.disabled = false;
+  }
+}
+
+async function loadEscrow() {
+  try {
+    const d = await (await fetch(`/api/c/${CID}/escrow`)).json();
+    const f = v => v >= 1e9 ? (v/1e9).toFixed(2)+'B'
+                 : v >= 1e6 ? (v/1e6).toFixed(1)+'M'
+                 : v >= 1e3 ? (v/1e3).toFixed(0)+'K'
+                 : v.toFixed(0);
+    document.getElementById('escrowTotal').textContent =
+      d.total_in_escrow > 0 ? f(d.total_in_escrow) + ' ISK' : '—';
+    document.getElementById('escrowBuyOrders').textContent =
+      d.buy_orders.total > 0 ? f(d.buy_orders.total) : '—';
+    document.getElementById('escrowCollateral').textContent =
+      d.collateral_locked.total > 0
+        ? f(d.collateral_locked.total) + (d.collateral_locked.entries.length ? ` (${d.collateral_locked.entries.length})` : '')
+        : '—';
+    document.getElementById('escrowRewards').textContent =
+      d.rewards_posted.total > 0
+        ? f(d.rewards_posted.total) + (d.rewards_posted.entries.length ? ` (${d.rewards_posted.entries.length})` : '')
+        : '—';
+    document.getElementById('escrowAuction').textContent =
+      d.auction_bids.total > 0 ? f(d.auction_bids.total) : '—';
+    if (d.total_in_escrow === 0) {
+      document.getElementById('escrowPanel').style.display = 'none';
+    }
+  } catch (e) {
+    document.getElementById('escrowTotal').textContent = 'unavailable';
+  }
+}
+
+async function initTradingTab() {
+  try {
+    const status = await (await fetch(`/api/c/${CID}/trading-status`)).json();
+    setTradingLastSynced(status.last);
+  } catch (e) {
+    document.getElementById('lastSyncedLabel').textContent = 'Status unavailable';
+  }
+  document.getElementById('sort-net_profit').classList.add('sand');
+  try {
+    await Promise.all([loadTradingData(), loadEscrow()]);
+  } catch (e) {
+    console.error('loadTradingData failed:', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INDUSTRY TAB (merged from industry.html — CID/fmtIsk reused from above)
+// ═══════════════════════════════════════════════════════════════════════════
+let _industrySyncInterval = null;
+
+const ACTIVITY_NAMES = {
+  1: 'Manufacturing', 3: 'Time Efficiency', 4: 'Material Efficiency',
+  5: 'Copying', 7: 'Reverse Engineering', 8: 'Invention', 9: 'Reaction',
+};
+const JOB_STATUS_COLOR = {
+  active: 'color:#38bdf8', paused: 'color:#b8883a', ready: 'color:#5a9e6f',
+  delivered: 'color:#6b7280', cancelled: 'color:#9e4040', reverted: 'color:#9e4040',
+};
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return iso.slice(0, 19).replace('T', ' ');
+}
+
+function fmtCountdown(iso) {
+  if (!iso) return '—';
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'ready';
+  const h = Math.floor(ms / 3.6e6);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `${d}d ${h % 24}h`;
+  const m = Math.floor((ms % 3.6e6) / 60000);
+  return `${h}h ${m}m`;
+}
+
+function itemIcon(typeId) {
+  return `<img src="https://images.evetech.net/types/${typeId}/icon?size=32" class="w-5 h-5 inline-block mr-1.5 align-middle rounded-sm" onerror="this.style.display='none'" />`;
+}
+
+function renderJobs(jobs, tbodyId, dateField) {
+  const tbody = document.getElementById(tbodyId);
+  if (!jobs.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-dune-muted py-6">No jobs</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = jobs.map(j => {
+    const name = j.blueprint_type_name || `Type ${j.blueprint_type_id || '?'}`;
+    const activity = ACTIVITY_NAMES[j.activity_id] || `Activity ${j.activity_id}`;
+    const statusStyle = JOB_STATUS_COLOR[j.status] || 'color:#9ca3af';
+    return `
+      <tr class="row border-b border-dune-border border-opacity-40">
+        <td class="py-1.5 pr-3 text-dune-text truncate max-w-48">${itemIcon(j.blueprint_type_id || 0)}${name}</td>
+        <td class="py-1.5 px-2 text-dune-muted">${activity}</td>
+        <td class="text-right py-1.5 px-2">${j.runs ?? '—'}</td>
+        <td class="text-right py-1.5 px-2 font-600" style="${statusStyle}">${j.status}</td>
+        <td class="text-right py-1.5 pl-2 text-dune-muted">${dateField === 'end_date' ? fmtCountdown(j[dateField]) : fmtDate(j[dateField])}</td>
+      </tr>`;
+  }).join('');
+}
+
+function renderBlueprints(blueprints) {
+  const tbody = document.getElementById('blueprintsBody');
+  if (!blueprints.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-dune-muted py-6">No blueprints found</td></tr>`;
+    return;
+  }
+  const sorted = [...blueprints].sort((a, b) => (a.type_name || '').localeCompare(b.type_name || ''));
+  tbody.innerHTML = sorted.map(b => {
+    const kind = b.quantity === -1 ? 'BPO' : b.quantity === -2 ? 'BPC' : `x${b.quantity}`;
+    const runs = b.quantity === -1 ? '∞' : (b.runs ?? '—');
+    return `
+      <tr class="row border-b border-dune-border border-opacity-40">
+        <td class="py-1.5 pr-3 text-dune-text truncate max-w-48">${itemIcon(b.type_id)}${b.type_name || `Type ${b.type_id}`}</td>
+        <td class="text-right py-1.5 px-2 text-dune-muted">${kind}</td>
+        <td class="text-right py-1.5 px-2">${b.material_efficiency ?? '—'}</td>
+        <td class="text-right py-1.5 px-2">${b.time_efficiency ?? '—'}</td>
+        <td class="text-right py-1.5 pl-2">${runs}</td>
+      </tr>`;
+  }).join('');
+}
+
+function renderContracts(contracts, tbodyId, showExpiry) {
+  const tbody = document.getElementById(tbodyId);
+  const cols = showExpiry ? 5 : 4;
+  if (!contracts.length) {
+    tbody.innerHTML = `<tr><td colspan="${cols}" class="text-center text-dune-muted py-6">No contracts</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = contracts.map(c => {
+    const value = c.reward > 0 ? c.reward : c.price;
+    const expiryCol = showExpiry ? `<td class="text-right py-1.5 pl-2 text-dune-muted">${fmtCountdown(c.date_expired)}</td>` : '';
+    return `
+      <tr class="row border-b border-dune-border border-opacity-40 cursor-pointer" onclick="loadContractItems(${c.contract_id}, this)">
+        <td class="py-1.5 pr-3 text-dune-text truncate max-w-56">${c.title || `Contract ${c.contract_id}`}</td>
+        <td class="text-right py-1.5 px-2 text-dune-muted">${c.type || '—'}</td>
+        <td class="text-right py-1.5 px-2">${c.status || '—'}</td>
+        <td class="text-right py-1.5 ${showExpiry ? 'px-2' : 'pl-2'}">${fmtIsk(value)}</td>
+        ${expiryCol}
+      </tr>
+      <tr id="contract-items-${c.contract_id}" class="hidden"><td colspan="${cols}" class="py-2 px-3 text-dune-muted">Loading items…</td></tr>`;
+  }).join('');
+}
+
+async function loadContractItems(contractId, rowEl) {
+  const row = document.getElementById(`contract-items-${contractId}`);
+  if (!row) return;
+  if (!row.classList.contains('hidden')) {
+    row.classList.add('hidden');
+    return;
+  }
+  row.classList.remove('hidden');
+  if (row.dataset.loaded) return;
+  try {
+    const resp = await fetch(`/api/c/${CID}/contracts/${contractId}/items`);
+    const data = await resp.json();
+    const items = data.items || [];
+    row.querySelector('td').innerHTML = items.length
+      ? items.map(i => `<span class="inline-flex items-center mr-3">${itemIcon(i.type_id)}x${i.quantity}</span>`).join('')
+      : 'No items (courier/auction contract, or items unavailable)';
+    row.dataset.loaded = '1';
+  } catch (e) {
+    row.querySelector('td').textContent = 'Failed to load items';
+  }
+}
+
+function renderPi(colonies) {
+  const container = document.getElementById('piCards');
+  const empty = document.getElementById('piEmpty');
+  if (!colonies.length) {
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  container.innerHTML = colonies.map(p => `
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2">
+        <p class="font-display font-600 text-dune-text text-sm">${p.planet_name || `Planet ${p.planet_id}`}</p>
+        <span class="text-xs font-mono text-dune-muted">${p.planet_type || ''}</span>
+      </div>
+      <p class="text-xs font-mono text-dune-muted mb-1">Upgrade Level: <span class="text-dune-text">${p.upgrade_level ?? '—'}</span></p>
+      <p class="text-xs font-mono text-dune-muted mb-1">Pins: <span class="text-dune-text">${p.num_pins ?? '—'}</span></p>
+      <p class="text-xs font-mono mb-3">Next Extraction: <span class="sand">${fmtCountdown(p.next_expiry)}</span></p>
+      <button onclick="loadPiDetail(${p.planet_id}, this)" class="btn-ghost text-xs px-2 py-1 rounded-sm">Load Detail</button>
+      <div id="pi-detail-${p.planet_id}" class="mt-2 text-xs font-mono text-dune-muted"></div>
+    </div>
+  `).join('');
+}
+
+async function loadPiDetail(planetId, btn) {
+  const el = document.getElementById(`pi-detail-${planetId}`);
+  btn.disabled = true;
+  el.textContent = 'Loading…';
+  try {
+    const resp = await fetch(`/api/c/${CID}/pi/${planetId}`);
+    const data = await resp.json();
+    const pins = data.pins || [];
+    el.innerHTML = pins.length
+      ? `${pins.length} pins — ${pins.filter(p => p.expiry_time).length} with active extraction cycles`
+      : 'No pin detail available';
+  } catch (e) {
+    el.textContent = 'Failed to load colony detail';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function setIndustryTab(name) {
+  ['jobs', 'blueprints', 'contracts', 'pi'].forEach(t => {
+    document.getElementById(`industrytab-content-${t}`).classList.toggle('hidden', t !== name);
+    const btn = document.getElementById(`industrytab-${t}`);
+    const active = t === name;
+    btn.className = `px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 -mb-px transition-colors ${
+      active ? 'border-dune-sand sand' : 'border-transparent text-dune-muted hover:text-dune-text'
+    }`;
+  });
+}
+
+async function loadIndustryData() {
+  try {
+    const [jobsResp, bpResp, contractsResp, piResp] = await Promise.all([
+      fetch(`/api/c/${CID}/industry-jobs`),
+      fetch(`/api/c/${CID}/blueprints`),
+      fetch(`/api/c/${CID}/contracts`),
+      fetch(`/api/c/${CID}/pi`),
+    ]);
+    const jobs = await jobsResp.json();
+    const bp = await bpResp.json();
+    const contracts = await contractsResp.json();
+    const pi = await piResp.json();
+
+    renderJobs(jobs.active || [], 'activeJobsBody', 'end_date');
+    renderJobs(jobs.completed || [], 'completedJobsBody', 'completed_date');
+    renderBlueprints(bp.blueprints || []);
+    renderContracts(contracts.outstanding || [], 'openContractsBody', true);
+    renderContracts(contracts.closed || [], 'closedContractsBody', false);
+    renderPi(pi.colonies || []);
+  } catch (e) {
+    console.error('loadIndustryData failed:', e);
+  }
+}
+
+function setIndustryLastSynced(ts) {
+  const label = document.getElementById('industryLastSyncedLabel');
+  if (ts) {
+    label.textContent = 'Last synced ' + fmtDate(ts) + ' UTC';
+  } else {
+    label.textContent = 'Not yet synced — click Sync Industry Data';
+  }
+}
+
+async function syncIndustry() {
+  if (_industrySyncInterval) return;
+  const btn     = document.getElementById('industrySyncBtn');
+  const spinner = document.getElementById('industrySyncSpinner');
+  const btnText = document.getElementById('industrySyncBtnText');
+
+  spinner.style.display = 'inline-block';
+  btnText.textContent = 'Syncing…';
+  btn.disabled = true;
+  document.getElementById('industryErrorBanner').classList.add('hidden');
+
+  try {
+    await Promise.all([
+      fetch(`/api/c/${CID}/sync-industry`, {method: 'POST'}),
+      fetch(`/api/c/${CID}/sync-pi`, {method: 'POST'}),
+    ]);
+
+    _industrySyncInterval = setInterval(async () => {
+      try {
+        const [is, ps] = await Promise.all([
+          (await fetch(`/api/c/${CID}/industry-status`)).json(),
+          (await fetch(`/api/c/${CID}/pi-status`)).json(),
+        ]);
+        if (!is.running && !ps.running) {
+          clearInterval(_industrySyncInterval);
+          _industrySyncInterval = null;
+          spinner.style.display = 'none';
+          btn.disabled = false;
+          const error = is.error || ps.error;
+          if (error) {
+            btnText.textContent = 'Sync Industry Data';
+            const banner = document.getElementById('industryErrorBanner');
+            banner.textContent = '⚠ ' + error;
+            banner.classList.remove('hidden');
+          } else {
+            btnText.textContent = 'Done ✓';
+            setIndustryLastSynced(is.last || ps.last);
+            await loadIndustryData();
+            setTimeout(() => { btnText.textContent = 'Sync Industry Data'; }, 2000);
+          }
+        }
+      } catch (e) {
+        clearInterval(_industrySyncInterval);
+        _industrySyncInterval = null;
+        spinner.style.display = 'none';
+        btnText.textContent = 'Sync Industry Data';
+        btn.disabled = false;
+      }
+    }, 1500);
+  } catch (e) {
+    spinner.style.display = 'none';
+    btnText.textContent = 'Sync Industry Data';
+    btn.disabled = false;
+  }
+}
+
+async function initIndustryTab() {
+  try {
+    const status = await (await fetch(`/api/c/${CID}/industry-status`)).json();
+    setIndustryLastSynced(status.last);
+  } catch (e) {
+    document.getElementById('industryLastSyncedLabel').textContent = 'Status unavailable';
+  }
+  await loadIndustryData();
+}
 </script>
 {% endblock %}

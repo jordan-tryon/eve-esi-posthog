@@ -347,18 +347,8 @@ def character_page(request: Request, character_id: int):
 
 @app.get("/skills/{character_id}", response_class=HTMLResponse)
 def skills_page(request: Request, character_id: int):
-    character = store.get_character(character_id)
-    if not character:
-        return RedirectResponse("/")
-    current    = store.get_last_snapshot(character_id) or {}
-    skill_rows = store.get_skills(character_id)
-    return templates.TemplateResponse("skills.html", {
-        "request":      request,
-        "current":      current,
-        "skills":       skill_rows,
-        "character_id": character_id,
-        "character":    character,
-    })
+    # Skills is now a top-level tab on the unified character page.
+    return RedirectResponse(f"/c/{character_id}?tab=skills")
 
 
 # ── API ───────────────────────────────────────────────────────────────────────
@@ -805,6 +795,59 @@ def api_optimal(character_id: int):
     }
 
 
+@app.get("/api/c/{character_id}/skillqueue")
+def api_skillqueue(character_id: int):
+    """Live training queue — fetched fresh each call, not persisted."""
+    token = auth.get_valid_token(character_id)
+    esi   = ESIClient(access_token=token)
+    try:
+        raw_queue = _safe_esi(lambda: esi.get_skillqueue(character_id), default=[])
+    finally:
+        esi.close()
+
+    now = datetime.now(timezone.utc)
+    queue = []
+    for entry in sorted(raw_queue or [], key=lambda e: e.get("queue_position", 99)):
+        finish_date = entry.get("finish_date")
+        if not finish_date:
+            continue
+        try:
+            finish_dt = datetime.fromisoformat(finish_date.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if finish_dt <= now:
+            continue
+
+        row = store.conn.execute(
+            "SELECT skill_name FROM skills WHERE character_id=? AND skill_id=? AND skill_name IS NOT NULL",
+            (character_id, entry["skill_id"]),
+        ).fetchone()
+        skill_name = row[0] if row else f"Skill {entry['skill_id']}"
+
+        hours_remaining = (finish_dt - now).total_seconds() / 3600
+        finishes = f"{hours_remaining/24:.1f}d" if hours_remaining >= 24 else f"{hours_remaining:.1f}h"
+
+        sp_per_hour = None
+        try:
+            start_dt = datetime.fromisoformat(entry["start_date"].replace("Z", "+00:00"))
+            total_hours = (finish_dt - start_dt).total_seconds() / 3600
+            sp_delta = entry.get("level_end_sp", 0) - entry.get("training_start_sp", entry.get("level_start_sp", 0))
+            if total_hours > 0:
+                sp_per_hour = round(sp_delta / total_hours)
+        except Exception:
+            pass
+
+        queue.append({
+            "skill_id":    entry["skill_id"],
+            "skill_name":  skill_name,
+            "to_level":    entry.get("finished_level", "—"),
+            "finishes":    finishes,
+            "sp_per_hour": sp_per_hour,
+        })
+
+    return {"queue": queue}
+
+
 @app.get("/api/c/{character_id}/ships")
 def api_ships(character_id: int):
     token = auth.get_valid_token(character_id)
@@ -919,15 +962,8 @@ def api_status(character_id: int):
 
 @app.get("/trading/{character_id}", response_class=HTMLResponse)
 def trading_page(request: Request, character_id: int):
-    character = store.get_character(character_id)
-    if not character:
-        return HTMLResponse("<h2>Character not tracked. <a href='/auth/start'>Add yours?</a></h2>", status_code=404)
-    current = store.get_last_snapshot(character_id) or _EMPTY_SNAPSHOT
-    return templates.TemplateResponse("trading.html", {
-        "request":   request,
-        "character": character,
-        "current":   current,
-    })
+    # Trading is now a top-level tab on the unified character page.
+    return RedirectResponse(f"/c/{character_id}?tab=trading")
 
 
 @app.get("/api/c/{character_id}/trading-data")
@@ -1310,15 +1346,8 @@ def api_inventory(character_id: int):
 
 @app.get("/industry/{character_id}", response_class=HTMLResponse)
 def industry_page(request: Request, character_id: int):
-    character = store.get_character(character_id)
-    if not character:
-        return HTMLResponse("<h2>Character not tracked. <a href='/auth/start'>Add yours?</a></h2>", status_code=404)
-    current = store.get_last_snapshot(character_id) or _EMPTY_SNAPSHOT
-    return templates.TemplateResponse("industry.html", {
-        "request":   request,
-        "character": character,
-        "current":   current,
-    })
+    # Industry is now a top-level tab on the unified character page.
+    return RedirectResponse(f"/c/{character_id}?tab=industry")
 
 
 @app.get("/api/c/{character_id}/industry-jobs")
