@@ -347,18 +347,8 @@ def character_page(request: Request, character_id: int):
 
 @app.get("/skills/{character_id}", response_class=HTMLResponse)
 def skills_page(request: Request, character_id: int):
-    character = store.get_character(character_id)
-    if not character:
-        return RedirectResponse("/")
-    current    = store.get_last_snapshot(character_id) or {}
-    skill_rows = store.get_skills(character_id)
-    return templates.TemplateResponse("skills.html", {
-        "request":      request,
-        "current":      current,
-        "skills":       skill_rows,
-        "character_id": character_id,
-        "character":    character,
-    })
+    # Skills is now a top-level tab on the unified character page.
+    return RedirectResponse(f"/c/{character_id}?tab=skills")
 
 
 # ── API ───────────────────────────────────────────────────────────────────────
@@ -919,15 +909,8 @@ def api_status(character_id: int):
 
 @app.get("/trading/{character_id}", response_class=HTMLResponse)
 def trading_page(request: Request, character_id: int):
-    character = store.get_character(character_id)
-    if not character:
-        return HTMLResponse("<h2>Character not tracked. <a href='/auth/start'>Add yours?</a></h2>", status_code=404)
-    current = store.get_last_snapshot(character_id) or _EMPTY_SNAPSHOT
-    return templates.TemplateResponse("trading.html", {
-        "request":   request,
-        "character": character,
-        "current":   current,
-    })
+    # Trading is now a top-level tab on the unified character page.
+    return RedirectResponse(f"/c/{character_id}?tab=trading")
 
 
 @app.get("/api/c/{character_id}/trading-data")
@@ -1310,15 +1293,8 @@ def api_inventory(character_id: int):
 
 @app.get("/industry/{character_id}", response_class=HTMLResponse)
 def industry_page(request: Request, character_id: int):
-    character = store.get_character(character_id)
-    if not character:
-        return HTMLResponse("<h2>Character not tracked. <a href='/auth/start'>Add yours?</a></h2>", status_code=404)
-    current = store.get_last_snapshot(character_id) or _EMPTY_SNAPSHOT
-    return templates.TemplateResponse("industry.html", {
-        "request":   request,
-        "character": character,
-        "current":   current,
-    })
+    # Industry is now a top-level tab on the unified character page.
+    return RedirectResponse(f"/c/{character_id}?tab=industry")
 
 
 @app.get("/api/c/{character_id}/industry-jobs")
