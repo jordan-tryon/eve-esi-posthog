@@ -1403,7 +1403,7 @@ loadTimeline();
 
 async function loadClone() {
   try {
-    const res = await fetch(`/api/c/{{ cid }}/clone`);
+    const res = await fetch(`/api/c/${CID}/clone`);
     if (!res.ok) { console.warn('[clone] HTTP', res.status, res.url); return; }
     const d = await res.json();
 
