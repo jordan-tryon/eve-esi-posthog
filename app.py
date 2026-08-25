@@ -21,7 +21,9 @@ from src.eve_client.asset_tracker import run_asset_tracking
 from src.eve_client.auth import EveAuth
 from src.eve_client.esi import ESIClient
 from src.eve_client.hourly_pipeline import run_hourly_snapshot
+from src.eve_client.industry_pipeline import run_industry_sync
 from src.eve_client.metrics import compute_trade_pnl, compute_cancelled_order_losses, ESCROW_RETURN_TYPES
+from src.eve_client.pi_pipeline import run_pi_sync
 from src.eve_client.store import SnapshotStore
 from src.eve_client.trading_pipeline import run_trading_sync
 
@@ -40,9 +42,11 @@ analytics = Analytics(
     host=os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com"),
 )
 
-scheduler          = BackgroundScheduler()
-_sync_jobs:         dict[int, dict] = {}   # character_id → {running, last, error}
-_trading_sync_jobs: dict[int, dict] = {}   # character_id → {running, last, error}
+scheduler           = BackgroundScheduler()
+_sync_jobs:          dict[int, dict] = {}   # character_id → {running, last, error}
+_trading_sync_jobs:  dict[int, dict] = {}   # character_id → {running, last, error}
+_industry_sync_jobs: dict[int, dict] = {}   # character_id → {running, last, error}
+_pi_sync_jobs:       dict[int, dict] = {}   # character_id → {running, last, error}
 
 
 # ── Scheduler helpers ─────────────────────────────────────────────────────────
@@ -97,6 +101,70 @@ def _make_asset_fn(character_id: int):
     return _track
 
 
+def _run_industry_sync_job(character_id: int):
+    """Core industry-sync logic shared by scheduler and manual trigger."""
+    _industry_sync_jobs.setdefault(character_id, {})["running"] = True
+    _industry_sync_jobs[character_id]["error"] = None
+    try:
+        token = auth.get_valid_token(character_id)
+        esi = ESIClient(access_token=token)
+        try:
+            run_industry_sync(character_id, auth, store, esi)
+        finally:
+            esi.close()
+        _industry_sync_jobs[character_id]["last"] = datetime.now(timezone.utc).isoformat()
+    except Exception as e:
+        _industry_sync_jobs[character_id]["error"] = str(e)
+        print(f"[scheduler] Error syncing industry for {character_id}: {e}")
+    finally:
+        _industry_sync_jobs[character_id]["running"] = False
+
+
+def _make_industry_sync_fn(character_id: int):
+    def _sync():
+        # Jobs/blueprints/contracts only change while playing — same offline
+        # throttle as the main sync, to save ESI calls on idle characters.
+        last = store.get_last_snapshot(character_id)
+        if last and not last.get("online"):
+            try:
+                elapsed_min = (datetime.now(timezone.utc) -
+                               datetime.fromisoformat(last["captured_at"])
+                               ).total_seconds() / 60
+                if elapsed_min < 55:
+                    return
+            except Exception:
+                pass
+        _run_industry_sync_job(character_id)
+    return _sync
+
+
+def _run_pi_sync_job(character_id: int):
+    """Core PI-sync logic shared by scheduler and manual trigger."""
+    _pi_sync_jobs.setdefault(character_id, {})["running"] = True
+    _pi_sync_jobs[character_id]["error"] = None
+    try:
+        token = auth.get_valid_token(character_id)
+        esi = ESIClient(access_token=token)
+        try:
+            run_pi_sync(character_id, auth, store, esi)
+        finally:
+            esi.close()
+        _pi_sync_jobs[character_id]["last"] = datetime.now(timezone.utc).isoformat()
+    except Exception as e:
+        _pi_sync_jobs[character_id]["error"] = str(e)
+        print(f"[scheduler] Error syncing PI for {character_id}: {e}")
+    finally:
+        _pi_sync_jobs[character_id]["running"] = False
+
+
+def _make_pi_sync_fn(character_id: int):
+    # Deliberately NO offline throttle — extraction/factory cycles progress
+    # whether or not the character is logged in. See pi_pipeline.py docstring.
+    def _sync():
+        _run_pi_sync_job(character_id)
+    return _sync
+
+
 def register_character_job(character_id: int, run_now: bool = True):
     job_id = f"sync_{character_id}"
     if not scheduler.get_job(job_id):
@@ -116,6 +184,26 @@ def register_character_job(character_id: int, run_now: bool = True):
             id=asset_job_id,
             next_run_time=datetime.now(timezone.utc) if run_now else None,
         )
+
+    industry_job_id = f"industry_{character_id}"
+    if not scheduler.get_job(industry_job_id):
+        scheduler.add_job(
+            _make_industry_sync_fn(character_id),
+            trigger=IntervalTrigger(minutes=10),
+            id=industry_job_id,
+            next_run_time=datetime.now(timezone.utc) if run_now else None,
+        )
+        _industry_sync_jobs[character_id] = {"running": False, "last": None, "error": None}
+
+    pi_job_id = f"pi_{character_id}"
+    if not scheduler.get_job(pi_job_id):
+        scheduler.add_job(
+            _make_pi_sync_fn(character_id),
+            trigger=IntervalTrigger(minutes=30),
+            id=pi_job_id,
+            next_run_time=datetime.now(timezone.utc) if run_now else None,
+        )
+        _pi_sync_jobs[character_id] = {"running": False, "last": None, "error": None}
 
     print(f"[scheduler] Registered jobs for character {character_id}")
 
@@ -158,6 +246,25 @@ def _safe_esi(fn, default=None):
     except Exception as e:
         print(f"  [esi] {e}")
         return default
+
+
+# Every column on `snapshots`, defaulted to None. Used in place of a bare `{}`
+# when a character has no snapshot yet (e.g. the instant after OAuth, before
+# the first background sync completes) — templates do `c.field is not none`
+# checks that treat a real Python None correctly, but raise UndefinedError if
+# `c.field` doesn't exist as a key at all (Jinja's Undefined isn't `none`).
+_EMPTY_SNAPSHOT = {
+    "character_id": None, "character_name": None, "corporation_id": None,
+    "captured_at": None, "wallet_balance": None, "solar_system_id": None,
+    "system_name": None, "station_id": None, "structure_id": None,
+    "ship_type_id": None, "ship_name": None, "ship_group_id": None,
+    "security_status": None, "total_sp": None, "unallocated_sp": None,
+    "isk_hour": None, "isk_hour_bounty": None, "isk_hour_trade": None,
+    "isk_hour_industry": None, "isk_hour_other": None, "risk_level": None,
+    "activity_type": None, "recent_losses": None, "online": None,
+    "last_login": None, "last_logout": None, "estimated_value": None,
+    "wealth_isk_hour": None, "at_risk_value": None,
+}
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -213,7 +320,7 @@ def character_page(request: Request, character_id: int):
     character = store.get_character(character_id)
     if not character:
         return HTMLResponse("<h2>Character not tracked. <a href='/auth/start'>Add yours?</a></h2>", status_code=404)
-    current   = store.get_last_snapshot(character_id) or {}
+    current   = store.get_last_snapshot(character_id) or _EMPTY_SNAPSHOT
     snapshots = store.get_snapshots(character_id, limit=168)
     sessions  = store.conn.execute(
         "SELECT * FROM sessions WHERE character_id=? ORDER BY started_at DESC LIMIT 20",
@@ -815,7 +922,7 @@ def trading_page(request: Request, character_id: int):
     character = store.get_character(character_id)
     if not character:
         return HTMLResponse("<h2>Character not tracked. <a href='/auth/start'>Add yours?</a></h2>", status_code=404)
-    current = store.get_last_snapshot(character_id) or {}
+    current = store.get_last_snapshot(character_id) or _EMPTY_SNAPSHOT
     return templates.TemplateResponse("trading.html", {
         "request":   request,
         "character": character,
@@ -1172,7 +1279,7 @@ def api_inventory(character_id: int):
     for sid in structure_ids:
         try:
             esi4 = ESIClient(access_token=token)
-            info = esi4._get(f"/universe/structures/{sid}/")
+            info = esi4.get_structure_info(sid)
             esi4.close()
             location_names[sid] = info.get("name", f"Structure {sid}")
         except Exception:
@@ -1197,6 +1304,129 @@ def api_inventory(character_id: int):
         items.sort(key=lambda x: x["est_value"], reverse=True)
 
     return {"by_location": by_location, "location_names": location_names}
+
+
+# ── Industry (jobs, blueprints, contracts, PI) ─────────────────────────────────
+
+@app.get("/industry/{character_id}", response_class=HTMLResponse)
+def industry_page(request: Request, character_id: int):
+    character = store.get_character(character_id)
+    if not character:
+        return HTMLResponse("<h2>Character not tracked. <a href='/auth/start'>Add yours?</a></h2>", status_code=404)
+    current = store.get_last_snapshot(character_id) or _EMPTY_SNAPSHOT
+    return templates.TemplateResponse("industry.html", {
+        "request":   request,
+        "character": character,
+        "current":   current,
+    })
+
+
+@app.get("/api/c/{character_id}/industry-jobs")
+def api_industry_jobs(character_id: int):
+    jobs = store.get_industry_jobs(character_id)
+
+    # Best-effort type-name enrichment from names already cached elsewhere in
+    # the DB (blueprints/market_orders/wallet_transactions) — avoids an ESI
+    # call on a GET route; unresolved ids just fall back to "Type {id}" in the UI.
+    type_ids = {j["blueprint_type_id"] for j in jobs if j.get("blueprint_type_id")}
+    type_ids |= {j["product_type_id"] for j in jobs if j.get("product_type_id")}
+    names: dict[int, str] = {}
+    if type_ids:
+        placeholders = ",".join("?" * len(type_ids))
+        params = list(type_ids)
+        for table in ("blueprints", "market_orders", "wallet_transactions"):
+            for row in store.conn.execute(
+                f"SELECT type_id, type_name FROM {table} WHERE type_id IN ({placeholders}) AND type_name IS NOT NULL",
+                params,
+            ).fetchall():
+                names.setdefault(row[0], row[1])
+
+    for j in jobs:
+        j["blueprint_type_name"] = names.get(j.get("blueprint_type_id"))
+        j["product_type_name"] = names.get(j.get("product_type_id"))
+
+    active_statuses = {"active", "paused", "ready"}
+    active = [j for j in jobs if j["status"] in active_statuses]
+    completed = [j for j in jobs if j["status"] not in active_statuses]
+    return {"active": active, "completed": completed}
+
+
+@app.get("/api/c/{character_id}/blueprints")
+def api_blueprints(character_id: int):
+    return {"blueprints": store.get_blueprints(character_id)}
+
+
+@app.get("/api/c/{character_id}/contracts")
+def api_contracts(character_id: int):
+    contracts = store.get_contracts(character_id)
+    open_statuses = {"outstanding", "in_progress"}
+    outstanding = [c for c in contracts if c["status"] in open_statuses]
+    closed = [c for c in contracts if c["status"] not in open_statuses]
+    return {"outstanding": outstanding, "closed": closed}
+
+
+@app.get("/api/c/{character_id}/contracts/{contract_id}/items")
+def api_contract_items(character_id: int, contract_id: int):
+    """Fetched live — line items are only needed on drill-down."""
+    token = auth.get_valid_token(character_id)
+    esi = ESIClient(access_token=token)
+    try:
+        items = _safe_esi(lambda: esi.get_contract_items(character_id, contract_id), default=[])
+    finally:
+        esi.close()
+    return {"items": items}
+
+
+@app.get("/api/c/{character_id}/pi")
+def api_pi(character_id: int):
+    return {"colonies": store.get_pi_colonies(character_id)}
+
+
+@app.get("/api/c/{character_id}/pi/{planet_id}")
+def api_pi_detail(character_id: int, planet_id: int):
+    """Fetched live — full pin/link/route detail is only needed on drill-down."""
+    token = auth.get_valid_token(character_id)
+    esi = ESIClient(access_token=token)
+    try:
+        detail = _safe_esi(lambda: esi.get_planet_detail(character_id, planet_id), default={})
+    finally:
+        esi.close()
+    return detail
+
+
+@app.post("/api/c/{character_id}/sync-industry")
+def api_sync_industry(character_id: int, background_tasks: BackgroundTasks):
+    if not store.get_token(character_id):
+        return JSONResponse({"error": "character not registered"}, status_code=404)
+    if _industry_sync_jobs.get(character_id, {}).get("running"):
+        return JSONResponse({"status": "already_running"})
+    _industry_sync_jobs.setdefault(character_id, {})["running"] = True
+    _industry_sync_jobs[character_id]["error"] = None
+    # Manual trigger bypasses the offline-hourly throttle
+    background_tasks.add_task(_run_industry_sync_job, character_id)
+    return JSONResponse({"status": "started"})
+
+
+@app.get("/api/c/{character_id}/industry-status")
+def api_industry_status(character_id: int):
+    return _industry_sync_jobs.get(character_id, {"running": False, "last": None, "error": None})
+
+
+@app.post("/api/c/{character_id}/sync-pi")
+def api_sync_pi(character_id: int, background_tasks: BackgroundTasks):
+    if not store.get_token(character_id):
+        return JSONResponse({"error": "character not registered"}, status_code=404)
+    if _pi_sync_jobs.get(character_id, {}).get("running"):
+        return JSONResponse({"status": "already_running"})
+    _pi_sync_jobs.setdefault(character_id, {})["running"] = True
+    _pi_sync_jobs[character_id]["error"] = None
+    background_tasks.add_task(_run_pi_sync_job, character_id)
+    return JSONResponse({"status": "started"})
+
+
+@app.get("/api/c/{character_id}/pi-status")
+def api_pi_status(character_id: int):
+    return _pi_sync_jobs.get(character_id, {"running": False, "last": None, "error": None})
 
 
 if __name__ == "__main__":

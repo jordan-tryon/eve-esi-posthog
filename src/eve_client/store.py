@@ -179,6 +179,89 @@ class SnapshotStore:
                 training_json TEXT,
                 fetched_at    TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS industry_jobs (
+                job_id                 INTEGER PRIMARY KEY,
+                character_id           INTEGER NOT NULL,
+                installer_id           INTEGER,
+                activity_id            INTEGER NOT NULL,
+                blueprint_id           INTEGER,
+                blueprint_type_id      INTEGER,
+                blueprint_location_id  INTEGER,
+                output_location_id     INTEGER,
+                facility_id            INTEGER,
+                product_type_id        INTEGER,
+                runs                   INTEGER,
+                cost                   REAL,
+                licensed_runs          INTEGER,
+                probability            REAL,
+                status                 TEXT NOT NULL,
+                duration               INTEGER,
+                start_date             TEXT,
+                end_date               TEXT,
+                pause_date             TEXT,
+                completed_date         TEXT,
+                completed_character_id INTEGER,
+                successful_runs        INTEGER,
+                synced_at              TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS blueprints (
+                item_id             INTEGER PRIMARY KEY,
+                character_id        INTEGER NOT NULL,
+                type_id             INTEGER NOT NULL,
+                type_name           TEXT,
+                location_id         INTEGER,
+                location_flag       TEXT,
+                quantity            INTEGER,
+                time_efficiency     INTEGER,
+                material_efficiency INTEGER,
+                runs                INTEGER,
+                synced_at           TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS contracts (
+                contract_id           INTEGER PRIMARY KEY,
+                character_id          INTEGER NOT NULL,
+                issuer_id             INTEGER,
+                issuer_corporation_id INTEGER,
+                assignee_id           INTEGER,
+                acceptor_id           INTEGER,
+                type                  TEXT,
+                status                TEXT,
+                title                 TEXT,
+                for_corporation       INTEGER,
+                availability          TEXT,
+                price                 REAL,
+                reward                REAL,
+                collateral            REAL,
+                buyout                REAL,
+                volume                REAL,
+                days_to_complete      INTEGER,
+                start_location_id     INTEGER,
+                end_location_id       INTEGER,
+                date_issued           TEXT,
+                date_expired          TEXT,
+                date_accepted         TEXT,
+                date_completed        TEXT,
+                synced_at             TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS pi_colonies (
+                character_id    INTEGER NOT NULL,
+                planet_id       INTEGER NOT NULL,
+                planet_name     TEXT,
+                planet_type     TEXT,
+                type_id         INTEGER,
+                solar_system_id INTEGER,
+                owner_id        INTEGER,
+                upgrade_level   INTEGER,
+                num_pins        INTEGER,
+                last_update     TEXT,
+                next_expiry     TEXT,
+                fetched_at      TEXT NOT NULL,
+                PRIMARY KEY (character_id, planet_id)
+            );
         """)
         self.conn.commit()
         self._migrate()
@@ -230,6 +313,18 @@ class SnapshotStore:
                 ON wallet_transactions(character_id, date);
             CREATE INDEX IF NOT EXISTS idx_orders_char
                 ON market_orders(character_id);
+            CREATE INDEX IF NOT EXISTS idx_industry_jobs_char_end
+                ON industry_jobs(character_id, end_date);
+            CREATE INDEX IF NOT EXISTS idx_industry_jobs_char_status
+                ON industry_jobs(character_id, status);
+            CREATE INDEX IF NOT EXISTS idx_blueprints_char
+                ON blueprints(character_id);
+            CREATE INDEX IF NOT EXISTS idx_contracts_char_status
+                ON contracts(character_id, status);
+            CREATE INDEX IF NOT EXISTS idx_contracts_char_issued
+                ON contracts(character_id, date_issued);
+            CREATE INDEX IF NOT EXISTS idx_pi_colonies_char
+                ON pi_colonies(character_id);
         """)
 
         self.conn.commit()
@@ -723,6 +818,175 @@ class SnapshotStore:
     def get_tracked_items(self, character_id: int) -> list[dict]:
         rows = self.conn.execute(
             "SELECT * FROM tracked_items WHERE character_id=? ORDER BY added_at DESC",
+            (character_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- Industry jobs ---
+
+    def save_industry_jobs(self, jobs: list[dict]):
+        for j in jobs:
+            self.conn.execute(
+                """INSERT OR REPLACE INTO industry_jobs
+                   (job_id, character_id, installer_id, activity_id, blueprint_id,
+                    blueprint_type_id, blueprint_location_id, output_location_id,
+                    facility_id, product_type_id, runs, cost, licensed_runs,
+                    probability, status, duration, start_date, end_date, pause_date,
+                    completed_date, completed_character_id, successful_runs, synced_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    j["job_id"],
+                    j["character_id"],
+                    j.get("installer_id"),
+                    j["activity_id"],
+                    j.get("blueprint_id"),
+                    j.get("blueprint_type_id"),
+                    j.get("blueprint_location_id"),
+                    j.get("output_location_id"),
+                    j.get("facility_id"),
+                    j.get("product_type_id"),
+                    j.get("runs"),
+                    j.get("cost"),
+                    j.get("licensed_runs"),
+                    j.get("probability"),
+                    j["status"],
+                    j.get("duration"),
+                    j.get("start_date"),
+                    j.get("end_date"),
+                    j.get("pause_date"),
+                    j.get("completed_date"),
+                    j.get("completed_character_id"),
+                    j.get("successful_runs"),
+                    j.get("synced_at") or _utcnow(),
+                ),
+            )
+        self.conn.commit()
+
+    def get_industry_jobs(self, character_id: int) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM industry_jobs WHERE character_id=? ORDER BY end_date DESC",
+            (character_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- Blueprints ---
+
+    def save_blueprints(self, character_id: int, blueprints: list[dict]):
+        """Wholesale replace — a blueprint that's no longer owned (sold, moved to
+        another character) should disappear, not linger as a stale row."""
+        now = _utcnow()
+        self.conn.execute("DELETE FROM blueprints WHERE character_id=?", (character_id,))
+        for b in blueprints:
+            self.conn.execute(
+                """INSERT OR REPLACE INTO blueprints
+                   (item_id, character_id, type_id, type_name, location_id,
+                    location_flag, quantity, time_efficiency, material_efficiency,
+                    runs, synced_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    b["item_id"],
+                    character_id,
+                    b["type_id"],
+                    b.get("type_name"),
+                    b.get("location_id"),
+                    b.get("location_flag"),
+                    b.get("quantity"),
+                    b.get("time_efficiency"),
+                    b.get("material_efficiency"),
+                    b.get("runs"),
+                    now,
+                ),
+            )
+        self.conn.commit()
+
+    def get_blueprints(self, character_id: int) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM blueprints WHERE character_id=? ORDER BY type_name",
+            (character_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- Contracts ---
+
+    def save_contracts(self, contracts: list[dict]):
+        for c in contracts:
+            self.conn.execute(
+                """INSERT OR REPLACE INTO contracts
+                   (contract_id, character_id, issuer_id, issuer_corporation_id,
+                    assignee_id, acceptor_id, type, status, title, for_corporation,
+                    availability, price, reward, collateral, buyout, volume,
+                    days_to_complete, start_location_id, end_location_id,
+                    date_issued, date_expired, date_accepted, date_completed, synced_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    c["contract_id"],
+                    c["character_id"],
+                    c.get("issuer_id"),
+                    c.get("issuer_corporation_id"),
+                    c.get("assignee_id"),
+                    c.get("acceptor_id"),
+                    c.get("type"),
+                    c.get("status"),
+                    c.get("title"),
+                    1 if c.get("for_corporation") else 0,
+                    c.get("availability"),
+                    c.get("price"),
+                    c.get("reward"),
+                    c.get("collateral"),
+                    c.get("buyout"),
+                    c.get("volume"),
+                    c.get("days_to_complete"),
+                    c.get("start_location_id"),
+                    c.get("end_location_id"),
+                    c.get("date_issued"),
+                    c.get("date_expired"),
+                    c.get("date_accepted"),
+                    c.get("date_completed"),
+                    c.get("synced_at") or _utcnow(),
+                ),
+            )
+        self.conn.commit()
+
+    def get_contracts(self, character_id: int) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM contracts WHERE character_id=? ORDER BY date_issued DESC",
+            (character_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- PI colonies ---
+
+    def save_pi_colonies(self, character_id: int, colonies: list[dict]):
+        """Wholesale replace — an abandoned/departed colony should disappear."""
+        now = _utcnow()
+        self.conn.execute("DELETE FROM pi_colonies WHERE character_id=?", (character_id,))
+        for p in colonies:
+            self.conn.execute(
+                """INSERT OR REPLACE INTO pi_colonies
+                   (character_id, planet_id, planet_name, planet_type, type_id,
+                    solar_system_id, owner_id, upgrade_level, num_pins, last_update,
+                    next_expiry, fetched_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    character_id,
+                    p["planet_id"],
+                    p.get("planet_name"),
+                    p.get("planet_type"),
+                    p.get("type_id"),
+                    p.get("solar_system_id"),
+                    p.get("owner_id"),
+                    p.get("upgrade_level"),
+                    p.get("num_pins"),
+                    p.get("last_update"),
+                    p.get("next_expiry"),
+                    now,
+                ),
+            )
+        self.conn.commit()
+
+    def get_pi_colonies(self, character_id: int) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM pi_colonies WHERE character_id=? ORDER BY next_expiry ASC",
             (character_id,),
         ).fetchall()
         return [dict(r) for r in rows]

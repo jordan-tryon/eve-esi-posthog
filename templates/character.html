@@ -66,6 +66,10 @@
     class="px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
     Trading
   </a>
+  <a href="/industry/{{ cid }}"
+    class="px-5 py-2.5 font-display font-600 text-sm tracking-wider border-b-2 border-transparent text-dune-muted -mb-px hover:text-dune-text transition-colors">
+    Industry
+  </a>
 </div>
 
 <!-- ══ OVERVIEW TAB ══ -->
@@ -1403,7 +1407,7 @@ loadTimeline();
 
 async function loadClone() {
   try {
-    const res = await fetch(`/api/c/{{ cid }}/clone`);
+    const res = await fetch(`/api/c/${CID}/clone`);
     if (!res.ok) { console.warn('[clone] HTTP', res.status, res.url); return; }
     const d = await res.json();
 
