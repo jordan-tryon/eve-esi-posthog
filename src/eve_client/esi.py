@@ -16,6 +16,8 @@ class ESIClient:
         self._type_cache: dict[int, dict] = {}
         self._group_cache: dict[int, dict] = {}
         self._system_cache: dict[int, dict] = {}
+        self._planet_cache: dict[int, dict] = {}
+        self._schematic_cache: dict[int, dict] = {}
         # Persistent client — reuses TCP connections, thread-safe
         self._client = httpx.Client(
             headers=self._headers,
@@ -172,6 +174,59 @@ class ESIClient:
 
     def get_market_history(self, region_id: int, type_id: int) -> list:
         return self._get(f"/markets/{region_id}/history/", params={"type_id": type_id})
+
+    def get_industry_jobs(self, character_id: int, include_completed: bool = True) -> list:
+        """Not paginated — ESI returns the full job list in one call."""
+        return self._get(
+            f"/characters/{character_id}/industry/jobs/",
+            params={"include_completed": include_completed},
+        )
+
+    def get_blueprints_all(self, character_id: int) -> list:
+        """Fetch every page of owned blueprints, following X-Pages header."""
+        url = f"{ESI_BASE}/characters/{character_id}/blueprints/"
+        all_bps = []
+        page = 1
+        while True:
+            resp = self._client.get(url, params={"page": page})
+            resp.raise_for_status()
+            all_bps.extend(resp.json())
+            if page >= int(resp.headers.get("X-Pages", 1)):
+                break
+            page += 1
+        return all_bps
+
+    def get_contract_items(self, character_id: int, contract_id: int) -> list:
+        return self._get(f"/characters/{character_id}/contracts/{contract_id}/items/")
+
+    def get_contract_bids(self, character_id: int, contract_id: int) -> list:
+        """Only valid for auction-type contracts — ESI 404s for other types."""
+        return self._get(f"/characters/{character_id}/contracts/{contract_id}/bids/")
+
+    def get_planets(self, character_id: int) -> list:
+        """PI colony summary list. Not paginated."""
+        return self._get(f"/characters/{character_id}/planets/")
+
+    def get_planet_detail(self, character_id: int, planet_id: int) -> dict:
+        """Full colony detail: pins (incl. extractor expiry_time), links, routes."""
+        return self._get(f"/characters/{character_id}/planets/{planet_id}/")
+
+    def get_universe_planet(self, planet_id: int) -> dict:
+        """Public endpoint — planet name + numeric type_id. Cached for process lifetime."""
+        if planet_id not in self._planet_cache:
+            self._planet_cache[planet_id] = self._get(f"/universe/planets/{planet_id}/")
+        return self._planet_cache[planet_id]
+
+    def get_schematic_info(self, schematic_id: int) -> dict:
+        """Public endpoint — PI schematic name (e.g. 'Coolant'). Cached for process lifetime."""
+        if schematic_id not in self._schematic_cache:
+            self._schematic_cache[schematic_id] = self._get(f"/universe/schematics/{schematic_id}/")
+        return self._schematic_cache[schematic_id]
+
+    def get_structure_info(self, structure_id: int) -> dict:
+        """Player-structure name resolution. Requires esi-universe.read_structures.v1
+        and the token's character having docking access — ESI 403s otherwise."""
+        return self._get(f"/universe/structures/{structure_id}/")
 
     def get_jita_sell_prices(self, type_ids: list[int]) -> dict[int, float]:
         """Best sell price at Jita 4-4 (station 60003760, region 10000002) per type_id."""

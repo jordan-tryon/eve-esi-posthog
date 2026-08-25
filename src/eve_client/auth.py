@@ -34,6 +34,7 @@ CHARACTER_SCOPES = [
     "esi-industry.read_character_mining.v1",
     "esi-contracts.read_character_contracts.v1",
     "esi-fittings.read_fittings.v1",
+    "esi-planets.manage_planets.v1",
 ]
 
 

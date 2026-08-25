@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+{% block title %}Industry — {{ character.character_name }} — Arrakis Tracker{% endblock %}
+
+{% block content %}
+{% set cid = character.character_id %}
+
+<!-- Header -->
+<div class="flex items-center gap-5 mb-4">
+  <a href="/c/{{ cid }}">
+    <img src="https://images.evetech.net/characters/{{ cid }}/portrait?size=128"
+         class="w-16 h-16 rounded-sm border border-dune-border flex-shrink-0 hover:border-dune-sand transition-colors"
+         style="filter:grayscale(30%)" />
+  </a>
+  <div class="flex-1">
+    <div class="flex items-center gap-3 flex-wrap mb-0.5">
+      <a href="/c/{{ cid }}" class="text-dune-muted hover:sand transition-colors text-sm font-display font-500 tracking-wider">
+        ← {{ character.character_name }}
+      </a>
+      <span class="text-dune-border">/</span>
+      <h1 class="font-display font-700 text-2xl text-dune-bright tracking-wider">Industry</h1>
+    </div>
+    <p class="text-dune-muted text-xs font-mono" id="lastSyncedLabel">—</p>
+  </div>
+  <div class="flex gap-2">
+    <button onclick="syncIndustry()" id="syncBtn" class="btn-sand text-sm px-4 py-1.5 rounded-sm flex items-center gap-2">
+      <span id="syncSpinner" style="display:none;width:11px;height:11px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0"></span>
+      <span id="syncBtnText">Sync Industry Data</span>
+    </button>
+  </div>
+</div>
+
+<!-- Error banner -->
+<div id="errorBanner" class="hidden mb-4 px-4 py-2 rounded-sm border border-red-900 text-red-400 text-sm font-mono" style="background:rgba(120,40,40,0.15)"></div>
+
+<!-- Tab nav -->
+<div class="flex border-b border-dune-border mb-6">
+  <button onclick="setTab('jobs')" id="tab-jobs"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-dune-sand sand -mb-px transition-colors">
+    Jobs
+  </button>
+  <button onclick="setTab('blueprints')" id="tab-blueprints"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+    Blueprints
+  </button>
+  <button onclick="setTab('contracts')" id="tab-contracts"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+    Contracts
+  </button>
+  <button onclick="setTab('pi')" id="tab-pi"
+    class="px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 border-transparent text-dune-muted hover:text-dune-text -mb-px transition-colors">
+    PI
+  </button>
+</div>
+
+<!-- ── JOBS TAB ─────────────────────────────────────────────────────────────── -->
+<div id="tab-content-jobs">
+  <div class="card p-4 mb-6">
+    <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Active Jobs</p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs font-mono">
+        <thead>
+          <tr class="text-dune-muted border-b border-dune-border">
+            <th class="text-left py-1.5 pr-3 font-400">Blueprint</th>
+            <th class="text-left py-1.5 px-2 font-400">Activity</th>
+            <th class="text-right py-1.5 px-2 font-400">Runs</th>
+            <th class="text-right py-1.5 px-2 font-400">Status</th>
+            <th class="text-right py-1.5 pl-2 font-400">Ends</th>
+          </tr>
+        </thead>
+        <tbody id="activeJobsBody">
+          <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card p-4">
+    <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Completed / Cancelled Jobs</p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs font-mono">
+        <thead>
+          <tr class="text-dune-muted border-b border-dune-border">
+            <th class="text-left py-1.5 pr-3 font-400">Blueprint</th>
+            <th class="text-left py-1.5 px-2 font-400">Activity</th>
+            <th class="text-right py-1.5 px-2 font-400">Runs</th>
+            <th class="text-right py-1.5 px-2 font-400">Status</th>
+            <th class="text-right py-1.5 pl-2 font-400">Completed</th>
+          </tr>
+        </thead>
+        <tbody id="completedJobsBody">
+          <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div><!-- /jobs -->
+
+<!-- ── BLUEPRINTS TAB ───────────────────────────────────────────────────────── -->
+<div id="tab-content-blueprints" class="hidden">
+  <div class="card p-4">
+    <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Blueprints</p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs font-mono">
+        <thead>
+          <tr class="text-dune-muted border-b border-dune-border">
+            <th class="text-left py-1.5 pr-3 font-400">Item</th>
+            <th class="text-right py-1.5 px-2 font-400">Type</th>
+            <th class="text-right py-1.5 px-2 font-400">ME</th>
+            <th class="text-right py-1.5 px-2 font-400">TE</th>
+            <th class="text-right py-1.5 pl-2 font-400">Runs</th>
+          </tr>
+        </thead>
+        <tbody id="blueprintsBody">
+          <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div><!-- /blueprints -->
+
+<!-- ── CONTRACTS TAB ────────────────────────────────────────────────────────── -->
+<div id="tab-content-contracts" class="hidden">
+  <div class="card p-4 mb-6">
+    <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Outstanding / In Progress</p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs font-mono">
+        <thead>
+          <tr class="text-dune-muted border-b border-dune-border">
+            <th class="text-left py-1.5 pr-3 font-400">Title</th>
+            <th class="text-right py-1.5 px-2 font-400">Type</th>
+            <th class="text-right py-1.5 px-2 font-400">Status</th>
+            <th class="text-right py-1.5 px-2 font-400">Price / Reward</th>
+            <th class="text-right py-1.5 pl-2 font-400">Expires</th>
+          </tr>
+        </thead>
+        <tbody id="openContractsBody">
+          <tr><td colspan="5" class="text-center text-dune-muted py-6">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card p-4">
+    <p class="font-display font-600 text-dune-bright tracking-wide text-sm mb-3">Finished / Failed / Cancelled</p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs font-mono">
+        <thead>
+          <tr class="text-dune-muted border-b border-dune-border">
+            <th class="text-left py-1.5 pr-3 font-400">Title</th>
+            <th class="text-right py-1.5 px-2 font-400">Type</th>
+            <th class="text-right py-1.5 px-2 font-400">Status</th>
+            <th class="text-right py-1.5 pl-2 font-400">Price / Reward</th>
+          </tr>
+        </thead>
+        <tbody id="closedContractsBody">
+          <tr><td colspan="4" class="text-center text-dune-muted py-6">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div><!-- /contracts -->
+
+<!-- ── PI TAB ───────────────────────────────────────────────────────────────── -->
+<div id="tab-content-pi" class="hidden">
+  <div id="piCards" class="grid grid-cols-1 lg:grid-cols-3 gap-4"></div>
+  <p id="piEmpty" class="hidden text-center text-dune-muted py-16 text-sm font-mono">
+    No PI colonies found — or the PI scope hasn't been re-authorized yet for this character
+    (see <a href="/auth/start" class="sand hover:underline">re-authorize</a>).
+  </p>
+</div><!-- /pi -->
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CID = {{ character.character_id }};
+let _syncInterval = null;
+
+const ACTIVITY_NAMES = {
+  1: 'Manufacturing', 3: 'Time Efficiency', 4: 'Material Efficiency',
+  5: 'Copying', 7: 'Reverse Engineering', 8: 'Invention', 9: 'Reaction',
+};
+const JOB_STATUS_COLOR = {
+  active: 'color:#38bdf8', paused: 'color:#b8883a', ready: 'color:#5a9e6f',
+  delivered: 'color:#6b7280', cancelled: 'color:#9e4040', reverted: 'color:#9e4040',
+};
+
+function fmtIsk(v) {
+  if (v == null || isNaN(v)) return '—';
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return (v / 1e12).toFixed(2) + 'T';
+  if (abs >= 1e9)  return (v / 1e9).toFixed(2) + 'B';
+  if (abs >= 1e6)  return (v / 1e6).toFixed(2) + 'M';
+  return v.toLocaleString('en-US', {maximumFractionDigits: 0});
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return iso.slice(0, 19).replace('T', ' ');
+}
+
+function fmtCountdown(iso) {
+  if (!iso) return '—';
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'ready';
+  const h = Math.floor(ms / 3.6e6);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `${d}d ${h % 24}h`;
+  const m = Math.floor((ms % 3.6e6) / 60000);
+  return `${h}h ${m}m`;
+}
+
+function itemIcon(typeId) {
+  return `<img src="https://images.evetech.net/types/${typeId}/icon?size=32" class="w-5 h-5 inline-block mr-1.5 align-middle rounded-sm" onerror="this.style.display='none'" />`;
+}
+
+function renderJobs(jobs, tbodyId, dateField) {
+  const tbody = document.getElementById(tbodyId);
+  if (!jobs.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-dune-muted py-6">No jobs</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = jobs.map(j => {
+    const name = j.blueprint_type_name || `Type ${j.blueprint_type_id || '?'}`;
+    const activity = ACTIVITY_NAMES[j.activity_id] || `Activity ${j.activity_id}`;
+    const statusStyle = JOB_STATUS_COLOR[j.status] || 'color:#9ca3af';
+    return `
+      <tr class="row border-b border-dune-border border-opacity-40">
+        <td class="py-1.5 pr-3 text-dune-text truncate max-w-48">${itemIcon(j.blueprint_type_id || 0)}${name}</td>
+        <td class="py-1.5 px-2 text-dune-muted">${activity}</td>
+        <td class="text-right py-1.5 px-2">${j.runs ?? '—'}</td>
+        <td class="text-right py-1.5 px-2 font-600" style="${statusStyle}">${j.status}</td>
+        <td class="text-right py-1.5 pl-2 text-dune-muted">${dateField === 'end_date' ? fmtCountdown(j[dateField]) : fmtDate(j[dateField])}</td>
+      </tr>`;
+  }).join('');
+}
+
+function renderBlueprints(blueprints) {
+  const tbody = document.getElementById('blueprintsBody');
+  if (!blueprints.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-dune-muted py-6">No blueprints found</td></tr>`;
+    return;
+  }
+  const sorted = [...blueprints].sort((a, b) => (a.type_name || '').localeCompare(b.type_name || ''));
+  tbody.innerHTML = sorted.map(b => {
+    const kind = b.quantity === -1 ? 'BPO' : b.quantity === -2 ? 'BPC' : `x${b.quantity}`;
+    const runs = b.quantity === -1 ? '∞' : (b.runs ?? '—');
+    return `
+      <tr class="row border-b border-dune-border border-opacity-40">
+        <td class="py-1.5 pr-3 text-dune-text truncate max-w-48">${itemIcon(b.type_id)}${b.type_name || `Type ${b.type_id}`}</td>
+        <td class="text-right py-1.5 px-2 text-dune-muted">${kind}</td>
+        <td class="text-right py-1.5 px-2">${b.material_efficiency ?? '—'}</td>
+        <td class="text-right py-1.5 px-2">${b.time_efficiency ?? '—'}</td>
+        <td class="text-right py-1.5 pl-2">${runs}</td>
+      </tr>`;
+  }).join('');
+}
+
+function renderContracts(contracts, tbodyId, showExpiry) {
+  const tbody = document.getElementById(tbodyId);
+  const cols = showExpiry ? 5 : 4;
+  if (!contracts.length) {
+    tbody.innerHTML = `<tr><td colspan="${cols}" class="text-center text-dune-muted py-6">No contracts</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = contracts.map(c => {
+    const value = c.reward > 0 ? c.reward : c.price;
+    const expiryCol = showExpiry ? `<td class="text-right py-1.5 pl-2 text-dune-muted">${fmtCountdown(c.date_expired)}</td>` : '';
+    return `
+      <tr class="row border-b border-dune-border border-opacity-40 cursor-pointer" onclick="loadContractItems(${c.contract_id}, this)">
+        <td class="py-1.5 pr-3 text-dune-text truncate max-w-56">${c.title || `Contract ${c.contract_id}`}</td>
+        <td class="text-right py-1.5 px-2 text-dune-muted">${c.type || '—'}</td>
+        <td class="text-right py-1.5 px-2">${c.status || '—'}</td>
+        <td class="text-right py-1.5 ${showExpiry ? 'px-2' : 'pl-2'}">${fmtIsk(value)}</td>
+        ${expiryCol}
+      </tr>
+      <tr id="contract-items-${c.contract_id}" class="hidden"><td colspan="${cols}" class="py-2 px-3 text-dune-muted">Loading items…</td></tr>`;
+  }).join('');
+}
+
+async function loadContractItems(contractId, rowEl) {
+  const row = document.getElementById(`contract-items-${contractId}`);
+  if (!row) return;
+  if (!row.classList.contains('hidden')) {
+    row.classList.add('hidden');
+    return;
+  }
+  row.classList.remove('hidden');
+  if (row.dataset.loaded) return;
+  try {
+    const resp = await fetch(`/api/c/${CID}/contracts/${contractId}/items`);
+    const data = await resp.json();
+    const items = data.items || [];
+    row.querySelector('td').innerHTML = items.length
+      ? items.map(i => `<span class="inline-flex items-center mr-3">${itemIcon(i.type_id)}x${i.quantity}</span>`).join('')
+      : 'No items (courier/auction contract, or items unavailable)';
+    row.dataset.loaded = '1';
+  } catch (e) {
+    row.querySelector('td').textContent = 'Failed to load items';
+  }
+}
+
+function renderPi(colonies) {
+  const container = document.getElementById('piCards');
+  const empty = document.getElementById('piEmpty');
+  if (!colonies.length) {
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  container.innerHTML = colonies.map(p => `
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2">
+        <p class="font-display font-600 text-dune-text text-sm">${p.planet_name || `Planet ${p.planet_id}`}</p>
+        <span class="text-xs font-mono text-dune-muted">${p.planet_type || ''}</span>
+      </div>
+      <p class="text-xs font-mono text-dune-muted mb-1">Upgrade Level: <span class="text-dune-text">${p.upgrade_level ?? '—'}</span></p>
+      <p class="text-xs font-mono text-dune-muted mb-1">Pins: <span class="text-dune-text">${p.num_pins ?? '—'}</span></p>
+      <p class="text-xs font-mono mb-3">Next Extraction: <span class="sand">${fmtCountdown(p.next_expiry)}</span></p>
+      <button onclick="loadPiDetail(${p.planet_id}, this)" class="btn-ghost text-xs px-2 py-1 rounded-sm">Load Detail</button>
+      <div id="pi-detail-${p.planet_id}" class="mt-2 text-xs font-mono text-dune-muted"></div>
+    </div>
+  `).join('');
+}
+
+async function loadPiDetail(planetId, btn) {
+  const el = document.getElementById(`pi-detail-${planetId}`);
+  btn.disabled = true;
+  el.textContent = 'Loading…';
+  try {
+    const resp = await fetch(`/api/c/${CID}/pi/${planetId}`);
+    const data = await resp.json();
+    const pins = data.pins || [];
+    el.innerHTML = pins.length
+      ? `${pins.length} pins — ${pins.filter(p => p.expiry_time).length} with active extraction cycles`
+      : 'No pin detail available';
+  } catch (e) {
+    el.textContent = 'Failed to load colony detail';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function setTab(name) {
+  ['jobs', 'blueprints', 'contracts', 'pi'].forEach(t => {
+    document.getElementById(`tab-content-${t}`).classList.toggle('hidden', t !== name);
+    const btn = document.getElementById(`tab-${t}`);
+    const active = t === name;
+    btn.className = `px-5 py-2 text-sm font-display font-600 tracking-wide border-b-2 -mb-px transition-colors ${
+      active ? 'border-dune-sand sand' : 'border-transparent text-dune-muted hover:text-dune-text'
+    }`;
+  });
+}
+
+async function loadData() {
+  try {
+    const [jobsResp, bpResp, contractsResp, piResp] = await Promise.all([
+      fetch(`/api/c/${CID}/industry-jobs`),
+      fetch(`/api/c/${CID}/blueprints`),
+      fetch(`/api/c/${CID}/contracts`),
+      fetch(`/api/c/${CID}/pi`),
+    ]);
+    const jobs = await jobsResp.json();
+    const bp = await bpResp.json();
+    const contracts = await contractsResp.json();
+    const pi = await piResp.json();
+
+    renderJobs(jobs.active || [], 'activeJobsBody', 'end_date');
+    renderJobs(jobs.completed || [], 'completedJobsBody', 'completed_date');
+    renderBlueprints(bp.blueprints || []);
+    renderContracts(contracts.outstanding || [], 'openContractsBody', true);
+    renderContracts(contracts.closed || [], 'closedContractsBody', false);
+    renderPi(pi.colonies || []);
+  } catch (e) {
+    console.error('loadData failed:', e);
+  }
+}
+
+function setLastSynced(ts) {
+  const label = document.getElementById('lastSyncedLabel');
+  if (ts) {
+    label.textContent = 'Last synced ' + fmtDate(ts) + ' UTC';
+  } else {
+    label.textContent = 'Not yet synced — click Sync Industry Data';
+  }
+}
+
+async function syncIndustry() {
+  if (_syncInterval) return;
+  const btn     = document.getElementById('syncBtn');
+  const spinner = document.getElementById('syncSpinner');
+  const btnText = document.getElementById('syncBtnText');
+
+  spinner.style.display = 'inline-block';
+  btnText.textContent = 'Syncing…';
+  btn.disabled = true;
+  document.getElementById('errorBanner').classList.add('hidden');
+
+  try {
+    await Promise.all([
+      fetch(`/api/c/${CID}/sync-industry`, {method: 'POST'}),
+      fetch(`/api/c/${CID}/sync-pi`, {method: 'POST'}),
+    ]);
+
+    _syncInterval = setInterval(async () => {
+      try {
+        const [is, ps] = await Promise.all([
+          (await fetch(`/api/c/${CID}/industry-status`)).json(),
+          (await fetch(`/api/c/${CID}/pi-status`)).json(),
+        ]);
+        if (!is.running && !ps.running) {
+          clearInterval(_syncInterval);
+          _syncInterval = null;
+          spinner.style.display = 'none';
+          btn.disabled = false;
+          const error = is.error || ps.error;
+          if (error) {
+            btnText.textContent = 'Sync Industry Data';
+            const banner = document.getElementById('errorBanner');
+            banner.textContent = '⚠ ' + error;
+            banner.classList.remove('hidden');
+          } else {
+            btnText.textContent = 'Done ✓';
+            setLastSynced(is.last || ps.last);
+            await loadData();
+            setTimeout(() => { btnText.textContent = 'Sync Industry Data'; }, 2000);
+          }
+        }
+      } catch (e) {
+        clearInterval(_syncInterval);
+        _syncInterval = null;
+        spinner.style.display = 'none';
+        btnText.textContent = 'Sync Industry Data';
+        btn.disabled = false;
+      }
+    }, 1500);
+  } catch (e) {
+    spinner.style.display = 'none';
+    btnText.textContent = 'Sync Industry Data';
+    btn.disabled = false;
+  }
+}
+
+// Init
+(async () => {
+  try {
+    const status = await (await fetch(`/api/c/${CID}/industry-status`)).json();
+    setLastSynced(status.last);
+  } catch (e) {
+    document.getElementById('lastSyncedLabel').textContent = 'Status unavailable';
+  }
+  await loadData();
+})();
+</script>
+{% endblock %}
